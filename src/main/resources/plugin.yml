@@ -1,0 +1,19 @@
+name: AgetarouUniqueGuns
+version: ${project.version}
+main: com.github.aburaagetarou.agetarouuniqueguns.AgetarouUniqueGuns
+api-version: 1.16
+depend:
+  - CrackShot
+  - CrackShotPlus
+  - LeonCSAddon
+  - LeonGunWar
+permisssions:
+  agetarouuniqueguns.help:
+    description: AgetarouUniqueGuns help
+    default: op
+  agetarouuniqueguns.reload:
+    description: AgetarouUniqueGuns config reload
+    default: op
+  agetarouuniqueguns.setvariable:
+    description: AgetarouUniqueGuns debug
+    default: op
