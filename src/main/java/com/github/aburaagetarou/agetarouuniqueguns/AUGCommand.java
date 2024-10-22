@@ -15,6 +15,10 @@ import org.bukkit.inventory.ItemStack;
 @Description("AgetarouUniqueGuns Command")
 public class AUGCommand extends BaseCommand {
 
+	public AUGCommand() {
+		AgetarouUniqueGuns.addCommand(this);
+	}
+
 	@Dependency
 	private AgetarouUniqueGuns plugin;
 

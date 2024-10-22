@@ -7,6 +7,7 @@ import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.Utilities;
 import com.shampaggon.crackshot.events.WeaponDamageEntityEvent;
 import me.DeeCaaD.CrackShotPlus.API;
+import me.DeeCaaD.CrackShotPlus.Skin;
 import net.azisaba.lgw.core.events.PlayerKillEvent;
 import org.bukkit.Sound;
 import org.bukkit.attribute.Attribute;
@@ -17,6 +18,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
+import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
@@ -118,7 +120,7 @@ public class HurtfulSpine extends WeaponBase {
 		killCounts.put(player, 0);
 		for(int i = 0; i < 9; i++) {
 			ItemStack item = player.getInventory().getItem(i);
-			if(setItemWalkSpeed(item, player)) {
+			if(updateWeaponData(item, player)) {
 				player.getInventory().setItem(i, item);
 				break;
 			}
@@ -134,7 +136,7 @@ public class HurtfulSpine extends WeaponBase {
 		killCounts.put(player, count);
 		for(int i = 0; i < 9; i++) {
 			ItemStack item = player.getInventory().getItem(i);
-			if(setItemWalkSpeed(item, player)) {
+			if(updateWeaponData(item, player)) {
 				player.getInventory().setItem(i, item);
 				break;
 			}
@@ -142,29 +144,36 @@ public class HurtfulSpine extends WeaponBase {
 	}
 
 	/**
-	 * 移動速度を更新する
+	 * 武器のメタデータを更新する
+	 * @param item 武器アイテム
 	 * @param player プレイヤー
 	 */
-	private static boolean setItemWalkSpeed(ItemStack item, Player player) {
+	private static boolean updateWeaponData(ItemStack item, Player player) {
 		if(item == null) return false;
 		String weaponTitle = API.getCSUtility().getWeaponTitle(item);
 		if(weaponTitle == null) return false;
-		weaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
-		if(!WEAPON_NAME.equals(weaponTitle)) return false;
+		String orgWeaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
+		if(!WEAPON_NAME.equals(orgWeaponTitle)) return false;
 
 		// アイテムの移動速度を設定
 		ItemMeta meta = item.getItemMeta();
 		if(killCounts.getOrDefault(player, 0) >= 3) {
+			boolean needModifier = true;
 			if(meta.getAttributeModifiers() != null) {
 				for(AttributeModifier modifier : meta.getAttributeModifiers().get(Attribute.GENERIC_MOVEMENT_SPEED)) {
 					if(modifier.getUniqueId().equals(SPEED_MODIFIER_UUID)) {
-						if(Double.compare(modifier.getAmount(), getMovementSpeed()) == 0) return false;
+						if(Double.compare(modifier.getAmount(), getMovementSpeed()) == 0) {
+							needModifier = false;
+							break;
+						}
 						meta.removeAttributeModifier(Attribute.GENERIC_MOVEMENT_SPEED, modifier);
 					}
 				}
 			}
-			AttributeModifier modifier = new AttributeModifier(SPEED_MODIFIER_UUID, "generic.movement_speed", getMovementSpeed(), AttributeModifier.Operation.ADD_NUMBER, EquipmentSlot.HAND);
-			meta.addAttributeModifier(Attribute.GENERIC_MOVEMENT_SPEED, modifier);
+			if(needModifier) {
+				AttributeModifier modifier = new AttributeModifier(SPEED_MODIFIER_UUID, "generic.movement_speed", getMovementSpeed(), AttributeModifier.Operation.ADD_NUMBER, EquipmentSlot.HAND);
+				meta.addAttributeModifier(Attribute.GENERIC_MOVEMENT_SPEED, modifier);
+			}
 		}
 		else {
 			if(meta.getAttributeModifiers() != null) {
@@ -174,7 +183,69 @@ public class HurtfulSpine extends WeaponBase {
 			}
 		}
 		item.setItemMeta(meta);
+
+		// スキンを設定
+		int stage = killCounts.getOrDefault(player, 0);
+		if(stage > 0 && stage <= 3) {
+			return CSUtilities.applySkin(player, item, "Stage" + stage, Skin.SkinType.NORMAL) != null;
+		}
+		if(stage == 0) {
+			return CSUtilities.applySkin(player, item, "Default_Skin", Skin.SkinType.NORMAL) != null;
+		}
 		return true;
+	}
+
+	/**
+	 * キルカウント増加
+	 * @param player プレイヤー
+	 */
+	public static void incrementKillCount(Player player) {
+		if(!CSListeners.getDamagedWeaponTitle(player).equals(WEAPON_NAME)) return;
+
+		// キルカウントを取得
+		int killCount = killCounts.getOrDefault(player, 0);
+
+		// 5キルストリーク毎にリセット
+		if(++killCount >= 5) {
+			resetKillCount(player);
+		}
+		// キルカウントを増加
+		else {
+			// キル数ごとの効果付与
+			switch (killCount) {
+				// 1キル時の効果：ダメージ上昇(ダメージ時処理で適用)
+				case 1:
+					Utilities.playSound(player, Sound.ENTITY_ZOMBIE_ATTACK_WOODEN_DOOR, 1.0f, 0.6f, 0L, 18L, 3L);
+					Utilities.playSound(player, Sound.ENTITY_ZOMBIE_ATTACK_WOODEN_DOOR, 1.0f, 0.8f, 4L, 18L, 3L);
+					break;
+
+				// 2キル時の効果：体力回復
+				case 2:
+				{
+					// 体力最大値を取得
+					double max = 20.0d;
+					Optional<AttributeInstance> attr = Optional.ofNullable(player.getAttribute(Attribute.GENERIC_MAX_HEALTH));
+					if(attr.isPresent()) max = attr.get().getValue();
+
+					// 即時回復
+					player.setHealth(Math.min(player.getHealth() + getHeal(), max));
+
+					Utilities.playSound(player, Sound.ENTITY_ZOMBIE_ATTACK_WOODEN_DOOR, 1.0f, 1.0f, 0L, 15L, 3L);
+					Utilities.playSound(player, Sound.ENTITY_ZOMBIE_ATTACK_WOODEN_DOOR, 1.0f, 1.2f, 4L, 15L, 3L);
+					break;
+				}
+
+				// 3キル時の効果：移動速度上昇
+				case 3:
+				{
+					Utilities.playSound(player, Sound.ENTITY_ZOMBIE_ATTACK_WOODEN_DOOR, 1.0f, 1.4f, 0L, 12L, 3L);
+					Utilities.playSound(player, Sound.ENTITY_ZOMBIE_ATTACK_WOODEN_DOOR, 1.0f, 1.6f, 4L, 12L, 3L);
+					break;
+				}
+			}
+			setKillCount(player, killCount);
+		}
+
 	}
 
 	/**
@@ -185,7 +256,7 @@ public class HurtfulSpine extends WeaponBase {
 	public void updateStats(Player player) {
 		for(int i = 0; i < 9; i++) {
 			ItemStack item = player.getInventory().getItem(i);
-			if(setItemWalkSpeed(item, player)) {
+			if(updateWeaponData(item, player)) {
 				player.getInventory().setItem(i, item);
 				break;
 			}
@@ -217,56 +288,12 @@ public class HurtfulSpine extends WeaponBase {
 	 */
 	@EventHandler
 	public void onPlayerKill(PlayerKillEvent event) {
-		if(!CSListeners.getDamagedWeaponTitle(event.getPlayer()).equals(WEAPON_NAME)) return;
+		incrementKillCount(event.getPlayer());
+	}
 
-		Player player = event.getPlayer();
-
-		// キルカウントを取得
-		int killCount = killCounts.getOrDefault(player, 0);
-
-		// 5キルストリーク毎にリセット
-		if(++killCount >= 5) {
-			resetKillCount(player);
-		}
-		// キルカウントを増加
-		else {
-			killCounts.put(player, killCount);
-
-			// キル数ごとの効果付与
-			switch (killCount) {
-				// 1キル時の効果：ダメージ上昇(ダメージ時処理で適用)
-				case 1:
-					Utilities.playSound(player, Sound.ENTITY_ZOMBIE_ATTACK_WOODEN_DOOR, 1.0f, 0.6f, 0L, 18L, 3L);
-					Utilities.playSound(player, Sound.ENTITY_ZOMBIE_ATTACK_WOODEN_DOOR, 1.0f, 0.8f, 4L, 18L, 3L);
-					break;
-
-				// 2キル時の効果：体力回復
-				case 2:
-				{
-					// 体力最大値を取得
-					double max = 20.0d;
-					Optional<AttributeInstance> attr = Optional.ofNullable(player.getAttribute(Attribute.GENERIC_MAX_HEALTH));
-					if(attr.isPresent()) max = attr.get().getValue();
-
-					// 即時回復
-					event.getPlayer().setHealth(Math.min(player.getHealth() + getHeal(), max));
-
-					Utilities.playSound(player, Sound.ENTITY_ZOMBIE_ATTACK_WOODEN_DOOR, 1.0f, 1.0f, 0L, 15L, 3L);
-					Utilities.playSound(player, Sound.ENTITY_ZOMBIE_ATTACK_WOODEN_DOOR, 1.0f, 1.2f, 4L, 15L, 3L);
-					break;
-				}
-
-				// 3キル時の効果：移動速度上昇
-				case 3:
-				{
-					// 移動速度を上昇
-					updateStats(player);
-					Utilities.playSound(player, Sound.ENTITY_ZOMBIE_ATTACK_WOODEN_DOOR, 1.0f, 1.4f, 0L, 12L, 3L);
-					Utilities.playSound(player, Sound.ENTITY_ZOMBIE_ATTACK_WOODEN_DOOR, 1.0f, 1.6f, 4L, 12L, 3L);
-					break;
-				}
-			}
-		}
+	@EventHandler
+	public void onEntityDeath(EntityDeathEvent event) {
+		incrementKillCount(event.getEntity().getKiller());
 	}
 
 	/**

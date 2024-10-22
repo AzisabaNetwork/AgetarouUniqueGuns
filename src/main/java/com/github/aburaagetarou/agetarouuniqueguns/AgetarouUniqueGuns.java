@@ -1,15 +1,19 @@
 package com.github.aburaagetarou.agetarouuniqueguns;
 
+import co.aikar.commands.BaseCommand;
 import co.aikar.commands.MessageKeys;
 import co.aikar.commands.MessageType;
 import co.aikar.commands.PaperCommandManager;
 import com.github.aburaagetarou.agetarouuniqueguns.listeners.CSListeners;
+import com.github.aburaagetarou.agetarouuniqueguns.weapons.EPT_Jager;
 import com.github.aburaagetarou.agetarouuniqueguns.weapons.HurtfulSpine;
 import com.github.aburaagetarou.agetarouuniqueguns.weapons.HurtlessSpine;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * AburaAgeTarou製ユニーク武器プラグイン
@@ -20,6 +24,12 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 	// プラグインインスタンス
 	private static AgetarouUniqueGuns instance;
 
+	// コマンドマネージャ
+	private static PaperCommandManager manager;
+
+	// コマンドリスト
+	private static final List<BaseCommand> commands = new ArrayList<>();
+
 	@Override
 	public void onEnable() {
 		instance = this;
@@ -29,7 +39,7 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 		loadDefaultWeaponConfig();
 
 		// コマンド登録
-		PaperCommandManager manager = new PaperCommandManager(this);
+		manager = new PaperCommandManager(this);
 
 		// brigadierを有効化しろと言われたので有効化
 		manager.enableUnstableAPI("brigadier");
@@ -41,18 +51,30 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 		manager.registerCommand(new AUGCommand().setExceptionHandler((command, registeredCommand, sender, args, t) -> {
 			sender.sendMessage(MessageType.ERROR, MessageKeys.ERROR_GENERIC_LOGGED);
 			return true;
-		}));
+		}), true);
 
 		// リスナー登録
 		Bukkit.getPluginManager().registerEvents(new CSListeners(), this);
 		Bukkit.getPluginManager().registerEvents(new HurtfulSpine(), this);
 		Bukkit.getPluginManager().registerEvents(new HurtlessSpine(), this);
+		Bukkit.getPluginManager().registerEvents(new EPT_Jager(), this);
+
+		// タイマー開始
+		EPT_Jager.initTimer();
 
 		getLogger().info("AgetarouUniqueGunsを有効化しました。");
 	}
 
 	@Override
 	public void onDisable() {
+
+		// タイマー停止
+		EPT_Jager.stopTimer();
+
+		// コマンド登録解除
+		commands.forEach(manager::unregisterCommand);
+		manager.unregisterCommands();
+
 		getLogger().info("AgetarouUniqueGunsを無効化しました。");
 	}
 
@@ -71,5 +93,13 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 		File weaponsDir = new File(getDataFolder(), "weapons");
 		if(!weaponsDir.exists()) weaponsDir.mkdirs();
 		WeaponConfig.loadWeaponConfig(weaponsDir);
+	}
+
+	/**
+	 * コマンド追加
+	 * @param command コマンド
+	 */
+	public static void addCommand(BaseCommand command) {
+		commands.add(command);
 	}
 }

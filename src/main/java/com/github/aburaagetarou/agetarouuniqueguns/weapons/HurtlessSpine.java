@@ -7,6 +7,7 @@ import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.Utilities;
 import com.shampaggon.crackshot.events.WeaponPreShootEvent;
 import me.DeeCaaD.CrackShotPlus.API;
+import me.DeeCaaD.CrackShotPlus.Skin;
 import net.azisaba.lgw.core.events.PlayerKillEvent;
 import org.bukkit.Sound;
 import org.bukkit.attribute.Attribute;
@@ -16,6 +17,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
+import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
@@ -100,7 +102,7 @@ public class HurtlessSpine extends WeaponBase {
 		killCounts.put(player, 0);
 		for(int i = 0; i < 9; i++) {
 			ItemStack item = player.getInventory().getItem(i);
-			if(setItemWalkSpeed(item, player)) {
+			if(updateWeaponData(item, player)) {
 				player.getInventory().setItem(i, item);
 				break;
 			}
@@ -116,7 +118,7 @@ public class HurtlessSpine extends WeaponBase {
 		killCounts.put(player, count);
 		for(int i = 0; i < 9; i++) {
 			ItemStack item = player.getInventory().getItem(i);
-			if(setItemWalkSpeed(item, player)) {
+			if(updateWeaponData(item, player)) {
 				player.getInventory().setItem(i, item);
 				break;
 			}
@@ -127,26 +129,32 @@ public class HurtlessSpine extends WeaponBase {
 	 * 移動速度を更新する
 	 * @param player プレイヤー
 	 */
-	private static boolean setItemWalkSpeed(ItemStack item, Player player) {
+	private static boolean updateWeaponData(ItemStack item, Player player) {
 		if(item == null) return false;
 		String weaponTitle = API.getCSUtility().getWeaponTitle(item);
 		if(weaponTitle == null) return false;
-		weaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
-		if(!WEAPON_NAME.equals(weaponTitle)) return false;
+		String orgWeaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
+		if(!WEAPON_NAME.equals(orgWeaponTitle)) return false;
 
 		// 現在の設定を取得
 		ItemMeta meta = item.getItemMeta();
 		if(killCounts.getOrDefault(player, 0) < 2){
+			boolean needModifier = true;
 			if(meta.getAttributeModifiers() != null) {
 				for(AttributeModifier modifier : meta.getAttributeModifiers().get(Attribute.GENERIC_MOVEMENT_SPEED)) {
 					if(modifier.getUniqueId().equals(SPEED_MODIFIER_UUID)) {
-						if(Double.compare(modifier.getAmount(), getMovementSpeed()) == 0) return false;
+						if(Double.compare(modifier.getAmount(), getMovementSpeed()) == 0) {
+							needModifier = false;
+							break;
+						}
 						meta.removeAttributeModifier(Attribute.GENERIC_MOVEMENT_SPEED, modifier);
 					}
 				}
 			}
-			AttributeModifier modifier = new AttributeModifier(SPEED_MODIFIER_UUID, "generic.movement_speed", getMovementSpeed(), AttributeModifier.Operation.ADD_NUMBER, EquipmentSlot.HAND);
-			meta.addAttributeModifier(Attribute.GENERIC_MOVEMENT_SPEED, modifier);
+			if(needModifier) {
+				AttributeModifier modifier = new AttributeModifier(SPEED_MODIFIER_UUID, "generic.movement_speed", getMovementSpeed(), AttributeModifier.Operation.ADD_NUMBER, EquipmentSlot.HAND);
+				meta.addAttributeModifier(Attribute.GENERIC_MOVEMENT_SPEED, modifier);
+			}
 		}
 		else {
 			if(meta.getAttributeModifiers() != null) {
@@ -158,7 +166,50 @@ public class HurtlessSpine extends WeaponBase {
 			}
 		}
 		item.setItemMeta(meta);
+
+		// スキンを設定
+		int stage = killCounts.getOrDefault(player, 0);
+		if(stage > 0 && stage <= 2) {
+			return CSUtilities.applySkin(player, item, "Stage" + stage, Skin.SkinType.NORMAL) != null;
+		}
+		if(stage == 0) {
+			return CSUtilities.applySkin(player, item, "Default_Skin", Skin.SkinType.NORMAL) != null;
+		}
 		return true;
+	}
+
+	/**
+	 * キルカウントをインクリメントする
+	 * @param player プレイヤー
+	 */
+	private static void incrementKillCount(Player player) {
+		if(!CSListeners.getDamagedWeaponTitle(player).equals(WEAPON_NAME)) return;
+
+		// キルカウントを取得
+		int killCount = killCounts.getOrDefault(player, 0);
+
+		// 5キルストリーク毎にリセット
+		if(++killCount >= 5) {
+			resetKillCount(player);
+		}
+		// キルカウントを増加
+		else {
+			// キル数ごとの効果付与
+			switch (killCount) {
+				// 1キル時の効果：拡散率減少(射撃前処理で適用)
+				case 1:
+					Utilities.playSound(player, Sound.ENTITY_WITHER_AMBIENT, 1.0f, 1.4f, 0L, 0L, 0L);
+					break;
+
+				// 2キル時の効果：移動速度上昇
+				case 2:
+				{
+					Utilities.playSound(player, Sound.ENTITY_WITHER_AMBIENT, 1.0f, 1.7f, 0L, 0L, 0L);
+					break;
+				}
+			}
+			setKillCount(player, killCount);
+		}
 	}
 
 	/**
@@ -169,7 +220,7 @@ public class HurtlessSpine extends WeaponBase {
 	public void updateStats(Player player) {
 		for(int i = 0; i < 9; i++) {
 			ItemStack item = player.getInventory().getItem(i);
-			if(setItemWalkSpeed(item, player)) {
+			if(updateWeaponData(item, player)) {
 				player.getInventory().setItem(i, item);
 				break;
 			}
@@ -197,38 +248,12 @@ public class HurtlessSpine extends WeaponBase {
 	 */
 	@EventHandler
 	public void onPlayerKill(PlayerKillEvent event) {
-		if(!CSListeners.getDamagedWeaponTitle(event.getPlayer()).equals(WEAPON_NAME)) return;
+		incrementKillCount(event.getPlayer());
+	}
 
-		Player player = event.getPlayer();
-
-		// キルカウントを取得
-		int killCount = killCounts.getOrDefault(player, 0);
-
-		// 5キルストリーク毎にリセット
-		if(++killCount >= 5) {
-			resetKillCount(player);
-		}
-		// キルカウントを増加
-		else {
-			killCounts.put(player, killCount);
-
-			// キル数ごとの効果付与
-			switch (killCount) {
-				// 1キル時の効果：拡散率減少(射撃前処理で適用)
-				case 1:
-					Utilities.playSound(player, Sound.ENTITY_WITHER_AMBIENT, 1.0f, 1.4f, 0L, 0L, 0L);
-					break;
-
-				// 2キル時の効果：移動速度上昇
-				case 2:
-				{
-					// 移動速度を変更
-					updateStats(player);
-					Utilities.playSound(player, Sound.ENTITY_WITHER_AMBIENT, 1.0f, 1.7f, 0L, 0L, 0L);
-					break;
-				}
-			}
-		}
+	@EventHandler
+	public void onEntityDeath(EntityDeathEvent event) {
+		incrementKillCount(event.getEntity().getKiller());
 	}
 
 	/**
