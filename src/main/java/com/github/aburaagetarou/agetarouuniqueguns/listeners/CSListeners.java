@@ -3,6 +3,8 @@ package com.github.aburaagetarou.agetarouuniqueguns.listeners;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
 import com.shampaggon.crackshot.events.WeaponDamageEntityEvent;
 import me.DeeCaaD.CrackShotPlus.API;
+import net.azisaba.lgw.core.LeonGunWar;
+import net.azisaba.lgw.core.util.BattleTeam;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -48,6 +50,18 @@ public class CSListeners implements Listener {
 				// 武器名を保存
 				damagedWeaponTitle.put(event.getPlayer(), title);
 				break;
+			}
+		}
+
+		// 味方に対する攻撃を無効化する
+		if(event.getVictim() instanceof Player) {
+			Player victim = (Player) event.getVictim();
+			if(LeonGunWar.getPlugin().getManager().isMatching()) {
+				BattleTeam attackerTeam = LeonGunWar.getPlugin().getManager().getBattleTeam(event.getPlayer());
+				BattleTeam damagedTeam = LeonGunWar.getPlugin().getManager().getBattleTeam(victim);
+				if(attackerTeam.equals(damagedTeam)) {
+					event.setCancelled(true);
+				}
 			}
 		}
 	}

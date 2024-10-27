@@ -6,6 +6,8 @@ import com.github.aburaagetarou.agetarouuniqueguns.listeners.CSListeners;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.Utilities;
 import com.shampaggon.crackshot.events.WeaponDamageEntityEvent;
+import com.shampaggon.crackshot.events.WeaponReloadCompleteEvent;
+import com.shampaggon.crackshot.events.WeaponScopeEvent;
 import me.DeeCaaD.CrackShotPlus.API;
 import me.DeeCaaD.CrackShotPlus.Skin;
 import net.azisaba.lgw.core.events.PlayerKillEvent;
@@ -186,8 +188,8 @@ public class HurtfulSpine extends WeaponBase {
 
 		// スキンを設定
 		int stage = killCounts.getOrDefault(player, 0);
-		if(stage > 0 && stage <= 3) {
-			return CSUtilities.applySkin(player, item, "Stage" + stage, Skin.SkinType.NORMAL) != null;
+		if(stage > 0 && stage <= 5) {
+			return CSUtilities.applySkin(player, item, "Stage" + Math.min(stage, 3), Skin.SkinType.NORMAL) != null;
 		}
 		if(stage == 0) {
 			return CSUtilities.applySkin(player, item, "Default_Skin", Skin.SkinType.NORMAL) != null;
@@ -293,7 +295,26 @@ public class HurtfulSpine extends WeaponBase {
 
 	@EventHandler
 	public void onEntityDeath(EntityDeathEvent event) {
+		if(event.getEntity() instanceof Player) return;
 		incrementKillCount(event.getEntity().getKiller());
+	}
+
+	/**
+	 * 武器スコープ時処理
+	 * @param event 武器スコープイベント
+	 */
+	@EventHandler
+	public void onWeaponScope(WeaponScopeEvent event) {
+		updateWeaponData(event.getPlayer().getInventory().getItemInMainHand(), event.getPlayer());
+	}
+
+	/**
+	 * 武器リロード時処理
+	 * @param event 武器リロードイベント
+	 */
+	@EventHandler
+	public void onWeaponReload(WeaponReloadCompleteEvent event) {
+		updateWeaponData(event.getPlayer().getInventory().getItemInMainHand(), event.getPlayer());
 	}
 
 	/**
