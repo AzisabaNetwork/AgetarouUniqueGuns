@@ -5,9 +5,7 @@ import co.aikar.commands.MessageKeys;
 import co.aikar.commands.MessageType;
 import co.aikar.commands.PaperCommandManager;
 import com.github.aburaagetarou.agetarouuniqueguns.listeners.CSListeners;
-import com.github.aburaagetarou.agetarouuniqueguns.weapons.EPT_Jager;
-import com.github.aburaagetarou.agetarouuniqueguns.weapons.HurtfulSpine;
-import com.github.aburaagetarou.agetarouuniqueguns.weapons.HurtlessSpine;
+import com.github.aburaagetarou.agetarouuniqueguns.weapons.*;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -58,9 +56,12 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 		Bukkit.getPluginManager().registerEvents(new HurtfulSpine(), this);
 		Bukkit.getPluginManager().registerEvents(new HurtlessSpine(), this);
 		Bukkit.getPluginManager().registerEvents(new EPT_Jager(), this);
+		Bukkit.getPluginManager().registerEvents(new Sorcerers_Rod(), this);
+		Grimoire.registerEvents();
 
 		// タイマー開始
 		EPT_Jager.initTimer();
+		Sorcerers_Rod.initManaRefillTask();
 
 		getLogger().info("AgetarouUniqueGunsを有効化しました。");
 	}
@@ -70,6 +71,7 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 
 		// タイマー停止
 		EPT_Jager.stopTimer();
+		Sorcerers_Rod.stopManaRefillTask();
 
 		// コマンド登録解除
 		commands.forEach(manager::unregisterCommand);
