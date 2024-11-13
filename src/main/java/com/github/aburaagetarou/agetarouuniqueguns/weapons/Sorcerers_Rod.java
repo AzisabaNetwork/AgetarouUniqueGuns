@@ -7,6 +7,8 @@ import com.shampaggon.crackshot.events.WeaponPreShootEvent;
 import com.shampaggon.crackshot.events.WeaponReloadCompleteEvent;
 import com.shampaggon.crackshot.events.WeaponReloadEvent;
 import me.DeeCaaD.CrackShotPlus.API;
+import net.kyori.adventure.text.TextComponent;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeModifier;
@@ -180,6 +182,9 @@ public class Sorcerers_Rod implements Listener {
 		String weaponTitle = CSUtilities.getOriginalWeaponName(event.getWeaponTitle());
 		if(weaponTitle != null && weaponTitle.startsWith(WEAPON_NAME)) {
 			lastActionTime.put(event.getPlayer(), Bukkit.getCurrentTick());
+			if(Grimoire.getElemental(event.getPlayer()) == Elemental.WATER) {
+				cps.put(event.getPlayer(), cps.getOrDefault(event.getPlayer(), 0) + 1);
+			}
 		}
 	}
 
@@ -265,6 +270,35 @@ public class Sorcerers_Rod implements Listener {
 			}
 		}
 	}
+
+	/**
+	 * 連打ツール検知
+	 */
+	private static Map<Player, Integer> cps = new HashMap<>();
+	private static BukkitTask cpsCheckTask;
+	public static void initCPSCheckTask() {
+		cpsCheckTask = Bukkit.getScheduler().runTaskTimer(AgetarouUniqueGuns.getInstance(), Sorcerers_Rod::checkCPS, 0, 20L);
+	}
+	public static void stopCPSCheckTask() {
+		if(cpsCheckTask != null) {
+			cpsCheckTask.cancel();
+		}
+	}
+
+	/**
+	 * 連打ツールチェック
+	 */
+	public static void checkCPS() {
+		for(Player player : cps.keySet()) {
+			if(cps.getOrDefault(player, 0) > 13) {
+				TextComponent message = LegacyComponentSerializer.legacyAmpersand().deserialize("&c&l" + player.getName() + " &cがレンツかも &dFire Per Tick:&l" + cps.get(player));
+				AgetarouUniqueGuns.getInstance().getLogger().warning(message.content());
+				Bukkit.getOnlinePlayers().stream().filter(p -> p.hasPermission("agetarouuniqueguns.admin")).forEach(p -> p.sendMessage(message));
+			}
+		}
+		cps.clear();
+	}
+
 
 	/**
 	 * 属性の定義
