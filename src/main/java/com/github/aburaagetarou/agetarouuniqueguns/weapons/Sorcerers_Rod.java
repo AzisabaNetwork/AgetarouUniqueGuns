@@ -203,32 +203,24 @@ public class Sorcerers_Rod implements Listener {
 		}
 
 		Elemental elem = Grimoire.getElemental(player);
-		if(lastElemental.containsKey(player) && lastElemental.get(player) == elem) {
-			return;
+		if(!lastElemental.containsKey(player) || lastElemental.get(player) != elem) {
+			API.getCSDirector().csminion.resetItemName(item, weaponTitle + "_" + elem.getKey());
+			API.getCSDirector().csminion.replaceBrackets(item, "0", WEAPON_NAME + "_" + elem.getKey());
 		}
 		lastElemental.put(player, elem);
-		API.getCSDirector().csminion.resetItemName(item, weaponTitle + "_" + elem.getKey());
-		API.getCSDirector().csminion.replaceBrackets(item, "0", WEAPON_NAME + "_" + elem.getKey());
 
 		// アイテムの移動速度を設定
 		ItemMeta meta = item.getItemMeta();
-		boolean needModifier = true;
 		double speed = getConfig(elem, KEY_MOVEMENT_SPEED_MODIFIER);
 		if(meta.getAttributeModifiers() != null) {
 			for(AttributeModifier modifier : meta.getAttributeModifiers().get(Attribute.GENERIC_MOVEMENT_SPEED)) {
 				if(modifier.getUniqueId().equals(SPEED_MODIFIER_UUID)) {
-					if(Double.compare(modifier.getAmount(), speed) == 0) {
-						needModifier = false;
-						break;
-					}
 					meta.removeAttributeModifier(Attribute.GENERIC_MOVEMENT_SPEED, modifier);
 				}
 			}
 		}
-		if(needModifier) {
-			AttributeModifier modifier = new AttributeModifier(SPEED_MODIFIER_UUID, "generic.movement_speed", speed, AttributeModifier.Operation.ADD_NUMBER, EquipmentSlot.HAND);
-			meta.addAttributeModifier(Attribute.GENERIC_MOVEMENT_SPEED, modifier);
-		}
+		AttributeModifier modifier = new AttributeModifier(SPEED_MODIFIER_UUID, "generic.movement_speed", speed, AttributeModifier.Operation.ADD_NUMBER, EquipmentSlot.HAND);
+		meta.addAttributeModifier(Attribute.GENERIC_MOVEMENT_SPEED, modifier);
 		item.setItemMeta(meta);
 
 		player.getInventory().setItem(slot, item);
