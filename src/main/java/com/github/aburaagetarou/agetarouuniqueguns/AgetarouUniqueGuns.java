@@ -62,6 +62,7 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 		// タイマー開始
 		EPT_Jager.initTimer();
 		Sorcerers_Rod.initManaRefillTask();
+		Sorcerers_Rod.initCPSCheckTask();
 
 		getLogger().info("AgetarouUniqueGunsを有効化しました。");
 	}
@@ -72,6 +73,7 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 		// タイマー停止
 		EPT_Jager.stopTimer();
 		Sorcerers_Rod.stopManaRefillTask();
+		Sorcerers_Rod.stopCPSCheckTask();
 
 		// コマンド登録解除
 		commands.forEach(manager::unregisterCommand);
