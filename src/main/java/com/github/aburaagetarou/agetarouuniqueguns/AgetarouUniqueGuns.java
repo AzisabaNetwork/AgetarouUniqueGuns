@@ -58,6 +58,7 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 		Bukkit.getPluginManager().registerEvents(new EPT_Jager(), this);
 		Bukkit.getPluginManager().registerEvents(new Sorcerers_Rod(), this);
 		Grimoire.registerEvents();
+		Bukkit.getPluginManager().registerEvents(new TensinoDantouDai(), this);
 
 		// タイマー開始
 		EPT_Jager.initTimer();

@@ -1,6 +1,7 @@
 package com.github.aburaagetarou.agetarouuniqueguns.utils;
 
 import com.github.aburaagetarou.agetarouuniqueguns.AgetarouUniqueGuns;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -33,5 +34,14 @@ public class Utilities {
 		};
 
 		task.runTaskTimer(AgetarouUniqueGuns.getInstance(), delay, period);
+	}
+
+	/**
+	 * メッセージを&着色して送信
+	 * @param player プレイヤー
+	 * @param message メッセージ
+	 */
+	public static void sendColoredMessage(Player player, String message) {
+		player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(message));
 	}
 }
