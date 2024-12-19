@@ -21,6 +21,7 @@ public class CSListeners implements Listener {
 
 	// ダメージを与えた武器名
 	static Map<Player, String> damagedWeaponTitle = new HashMap<>();
+	static Map<Player, String> strictDamagedWeaponTitle = new HashMap<>();
 
 	/**
 	 * 最終ダメージを与えた武器名を取得
@@ -33,22 +34,40 @@ public class CSListeners implements Listener {
 	}
 
 	/**
+	 * 最終ダメージを与えた武器 or アタッチメント名を取得
+	 * @param player プレイヤー
+	 * @return 武器名
+	 */
+	@Nonnull
+	public static String getStrictDamagedWeaponTitle(Player player) {
+		return strictDamagedWeaponTitle.getOrDefault(player, "");
+	}
+
+	/**
 	 * CS武器ダメージ
 	 * @param event イベント
 	 */
 	@EventHandler
 	public void onWeaponDamageEntity(WeaponDamageEntityEvent event) {
 		damagedWeaponTitle.remove(event.getPlayer());
+		strictDamagedWeaponTitle.remove(event.getPlayer());
 
 		// ホットバーから武器を取得
 		for(int i = 0; i < 9; i++) {
 			String title = API.getCSUtility().getWeaponTitle(event.getPlayer().getInventory().getItem(i));
 			if(title == null) continue;
-			title = CSUtilities.getOriginalWeaponName(title);
-			if(event.getWeaponTitle().equals(title)) {
+			String meleeTitle = API.getCSDirector().getString(title + ".Item_Information.Melee_Attachment");
+			if(event.getWeaponTitle().equals(title) || event.getWeaponTitle().equals(meleeTitle)) {
 
 				// 武器名を保存
+				title = CSUtilities.getOriginalWeaponName(title);
 				damagedWeaponTitle.put(event.getPlayer(), title);
+				if(event.getWeaponTitle().equals(meleeTitle)) {
+					strictDamagedWeaponTitle.put(event.getPlayer(), meleeTitle);
+				}
+				else {
+					strictDamagedWeaponTitle.put(event.getPlayer(), title);
+				}
 				break;
 			}
 		}
