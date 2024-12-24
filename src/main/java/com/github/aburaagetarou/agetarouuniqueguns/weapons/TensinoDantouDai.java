@@ -7,26 +7,32 @@ import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.Utilities;
 import com.shampaggon.crackshot.events.WeaponDamageEntityEvent;
 import com.shampaggon.crackshot.events.WeaponPreShootEvent;
-import com.shampaggon.crackshot.events.WeaponShootEvent;
 import me.DeeCaaD.CrackShotPlus.API;
 import net.azisaba.lgw.core.LeonGunWar;
 import net.azisaba.lgw.core.events.PlayerKillEvent;
 import net.azisaba.lgw.core.util.BattleTeam;
 import org.bukkit.Bukkit;
+import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.player.PlayerAttemptPickupItemEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
+import org.bukkit.util.Vector;
 
 import java.util.*;
 
@@ -47,6 +53,7 @@ public class TensinoDantouDai extends WeaponBase {
 	public final static String KEY_SKILL_REGENERATION_DURATION = "Skill_Regeneration_Duration";
 	public final static String KEY_DAMAGE_REDUCTION_AMOUNT = "Damage_Reduction_Amount";
 	public final static String KEY_DAMAGE_REDUCTION_RANGE = "Damage_Reduction_Range";
+	public final static String KEY_POTION_EFFECTS = "Potion_Effects";
 
 	// 初期設定
 	private static final ConfigurationSection defaultConfig = new YamlConfiguration(){{{
@@ -56,6 +63,22 @@ public class TensinoDantouDai extends WeaponBase {
 		set(KEY_SKILL_REGENERATION_DURATION, 20);
 		set(KEY_DAMAGE_REDUCTION_AMOUNT, 3.0d);
 		set(KEY_DAMAGE_REDUCTION_RANGE, 15.0d);
+		set(KEY_POTION_EFFECTS + ".1.Type", PotionEffectType.REGENERATION.getName());
+		set(KEY_POTION_EFFECTS + ".1.Duration", 60);
+		set(KEY_POTION_EFFECTS + ".1.Amplifier", 2);
+		set(KEY_POTION_EFFECTS + ".1.Material", Material.PINK_SHULKER_BOX);
+		set(KEY_POTION_EFFECTS + ".2.Type", PotionEffectType.SPEED.getName());
+		set(KEY_POTION_EFFECTS + ".2.Duration", 60);
+		set(KEY_POTION_EFFECTS + ".2.Amplifier", 2);
+		set(KEY_POTION_EFFECTS + ".2.Material", Material.LIGHT_BLUE_SHULKER_BOX);
+		set(KEY_POTION_EFFECTS + ".3.Type", PotionEffectType.NIGHT_VISION.getName());
+		set(KEY_POTION_EFFECTS + ".3.Duration", 300);
+		set(KEY_POTION_EFFECTS + ".3.Amplifier", 0);
+		set(KEY_POTION_EFFECTS + ".3.Material", Material.GREEN_SHULKER_BOX);
+		set(KEY_POTION_EFFECTS + ".4.Type", PotionEffectType.DAMAGE_RESISTANCE.getName());
+		set(KEY_POTION_EFFECTS + ".4.Duration", 100);
+		set(KEY_POTION_EFFECTS + ".4.Amplifier", 0);
+		set(KEY_POTION_EFFECTS + ".4.Material", Material.GRAY_SHULKER_BOX);
 	}}};
 
 	// キルカウント
@@ -179,6 +202,40 @@ public class TensinoDantouDai extends WeaponBase {
 		}
 	}
 
+	/**
+	 * バフアイテムばらまき
+	 * @param player プレイヤー
+	 */
+	private static void scatterBuffItem(Player player) {
+		ConfigurationSection section = getConfig(KEY_POTION_EFFECTS);
+		for(String key : section.getKeys(false)) {
+			if(!section.isString((key + ".Type"))) continue;
+			if(!section.isString((key + ".Material"))) continue;
+			PotionEffectType type = PotionEffectType.getByName(section.getString(key + ".Type"));
+			Material material = Material.getMaterial(section.getString(key + ".Material"));
+			if(type == null || material == null) continue;
+			int duration = section.getInt(key + ".Duration");
+			int amplifier = section.getInt(key + ".Amplifier");
+
+			// 自分自身に効果を付与
+			PotionEffect effect = new PotionEffect(type, duration, amplifier);
+			player.addPotionEffect(effect);
+
+			ItemStack item = new ItemStack(material);
+			Item drop = player.getWorld().dropItem(player.getLocation(), item);
+			PersistentDataContainer container = drop.getPersistentDataContainer();
+			container.set(new NamespacedKey(AgetarouUniqueGuns.getInstance(), WEAPON_NAME), PersistentDataType.STRING, player.getUniqueId().toString());
+			container.set(new NamespacedKey(AgetarouUniqueGuns.getInstance(), "Type"), PersistentDataType.STRING, type.getName());
+			container.set(new NamespacedKey(AgetarouUniqueGuns.getInstance(), "Duration"), PersistentDataType.INTEGER, duration);
+			container.set(new NamespacedKey(AgetarouUniqueGuns.getInstance(), "Amplifier"), PersistentDataType.INTEGER, amplifier);
+			container.set(new NamespacedKey(AgetarouUniqueGuns.getInstance(), "Material"), PersistentDataType.STRING, material.toString());
+			drop.setPickupDelay(20);
+			Vector random = new Vector(Math.random() - 0.5, 0.25, Math.random() - 0.5);
+			random.multiply(1.5d);
+			drop.setVelocity(random);
+		}
+	}
+
 
 	/**
 	 * キルカウント増加
@@ -190,24 +247,26 @@ public class TensinoDantouDai extends WeaponBase {
 		// キルカウントを取得
 		int killCount = killCounts.getOrDefault(player, 0);
 
-		// 5キルストリーク毎にリセット
-		if(++killCount >= 5) {
-			resetKillCount(player);
-		}
 		// キルカウントを増加
-		else {
-			// キル数ごとの効果付与
-			switch (killCount) {
-				// 4キル時の効果：周囲にいる味方のダメージカット
-				case 4:
-					applyDamageReduction(player);
-					break;
+		// キル数ごとの効果付与
+		switch (++killCount) {
+			// 4キル時の効果：周囲にいる味方のダメージカット
+			case 4:
+				applyDamageReduction(player);
+				break;
 
-				default:
-					break;
-			}
-			setKillCount(player, killCount);
+			// 5キル時の効果：バフアイテムばらまき＆リセット
+			case 5:
+				Utilities.sendColoredMessage(player, "&e天使からの贈り物が辺りに撒かれた！");
+				player.playSound(player.getLocation(), "ui.toast.challenge_complete", 1.0f, 1.3f);
+				scatterBuffItem(player);
+				resetKillCount(player);
+				break;
+
+			default:
+				break;
 		}
+		setKillCount(player, killCount);
 
 	}
 
@@ -281,5 +340,47 @@ public class TensinoDantouDai extends WeaponBase {
 	public void onEntityDeath(EntityDeathEvent event) {
 		if(event.getEntity() instanceof Player) return;
 		incrementKillCount(event.getEntity().getKiller());
+	}
+
+
+	/**
+	 * バフアイテム拾得
+	 * @param event アイテム拾得イベント
+	 */
+	@EventHandler
+	public void onPickupItem(PlayerAttemptPickupItemEvent event) {
+		PersistentDataContainer container = event.getItem().getPersistentDataContainer();
+		if(!container.has(new NamespacedKey(AgetarouUniqueGuns.getInstance(), WEAPON_NAME), PersistentDataType.STRING)) return;
+		event.setCancelled(true);
+
+		Player player = event.getPlayer();
+
+		// 拾得者が自分自身の場合は無視
+		Player user = Bukkit.getPlayer(UUID.fromString(container.get(new NamespacedKey(AgetarouUniqueGuns.getInstance(), WEAPON_NAME), PersistentDataType.STRING)));
+		if(player.equals(user)) {
+			return;
+		}
+
+		// 拾得者が敵チームの場合は無視
+		BattleTeam team = LeonGunWar.getPlugin().getManager().getBattleTeam(player);
+		BattleTeam userTeam = LeonGunWar.getPlugin().getManager().getBattleTeam(user);
+		if((team == null && userTeam == null) || (team != null && !team.equals(userTeam))) {
+			return;
+		}
+
+		// ポーション付与情報の取得
+		PotionEffectType type = PotionEffectType.getByName(container.get(new NamespacedKey(AgetarouUniqueGuns.getInstance(), "Type"), PersistentDataType.STRING));
+		int duration = container.get(new NamespacedKey(AgetarouUniqueGuns.getInstance(), "Duration"), PersistentDataType.INTEGER);
+		int amplifier = container.get(new NamespacedKey(AgetarouUniqueGuns.getInstance(), "Amplifier"), PersistentDataType.INTEGER);
+		Material material = Material.getMaterial(container.get(new NamespacedKey(AgetarouUniqueGuns.getInstance(), "Material"), PersistentDataType.STRING));
+		if(type == null || material == null) return;
+
+		// ポーション効果の付与
+		PotionEffect effect = new PotionEffect(type, duration, amplifier);
+		player.addPotionEffect(effect);
+		player.playSound(player.getLocation(), "entity.player.levelup", 1.0f, 1.4f);
+
+		// 一度拾得したら削除
+		event.getItem().remove();
 	}
 }
