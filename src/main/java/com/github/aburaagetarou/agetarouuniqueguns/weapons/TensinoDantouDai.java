@@ -53,6 +53,7 @@ public class TensinoDantouDai extends WeaponBase {
 	public final static String KEY_SKILL_REGENERATION_DURATION = "Skill_Regeneration_Duration";
 	public final static String KEY_DAMAGE_REDUCTION_AMOUNT = "Damage_Reduction_Amount";
 	public final static String KEY_DAMAGE_REDUCTION_RANGE = "Damage_Reduction_Range";
+	public final static String KEY_POTION_ITEMS_AGE = "Potion_Items_Age";
 	public final static String KEY_POTION_EFFECTS = "Potion_Effects";
 
 	// 初期設定
@@ -63,6 +64,7 @@ public class TensinoDantouDai extends WeaponBase {
 		set(KEY_SKILL_REGENERATION_DURATION, 20);
 		set(KEY_DAMAGE_REDUCTION_AMOUNT, 3.0d);
 		set(KEY_DAMAGE_REDUCTION_RANGE, 15.0d);
+		set(KEY_POTION_ITEMS_AGE, 1200);
 		set(KEY_POTION_EFFECTS + ".1.Type", PotionEffectType.REGENERATION.getName());
 		set(KEY_POTION_EFFECTS + ".1.Duration", 60);
 		set(KEY_POTION_EFFECTS + ".1.Amplifier", 2);
@@ -185,7 +187,7 @@ public class TensinoDantouDai extends WeaponBase {
 					}
 					if(entity instanceof Player) {
 						Player victim = (Player) entity;
-						return team != null && !team.equals(LeonGunWar.getPlugin().getManager().getBattleTeam(victim));
+						return team != null && team.equals(LeonGunWar.getPlugin().getManager().getBattleTeam(victim));
 					}
 					return false;
 				})
@@ -230,6 +232,7 @@ public class TensinoDantouDai extends WeaponBase {
 			container.set(new NamespacedKey(AgetarouUniqueGuns.getInstance(), "Amplifier"), PersistentDataType.INTEGER, amplifier);
 			container.set(new NamespacedKey(AgetarouUniqueGuns.getInstance(), "Material"), PersistentDataType.STRING, material.toString());
 			drop.setPickupDelay(20);
+			drop.setTicksLived(6000 - (int) getConfig(KEY_POTION_ITEMS_AGE));
 			Vector random = new Vector(Math.random() - 0.5, 0.25, Math.random() - 0.5);
 			random.multiply(1.5d);
 			drop.setVelocity(random);
@@ -249,18 +252,17 @@ public class TensinoDantouDai extends WeaponBase {
 
 		// キルカウントを増加
 		// キル数ごとの効果付与
-		switch (++killCount) {
+		switch ((++killCount) % 5) {
 			// 4キル時の効果：周囲にいる味方のダメージカット
-			case 4:
+			case 3:
 				applyDamageReduction(player);
 				break;
 
 			// 5キル時の効果：バフアイテムばらまき＆リセット
-			case 5:
+			case 4:
 				Utilities.sendColoredMessage(player, "&e天使からの贈り物が辺りに撒かれた！");
 				player.playSound(player.getLocation(), "ui.toast.challenge_complete", 1.0f, 1.3f);
 				scatterBuffItem(player);
-				resetKillCount(player);
 				break;
 
 			default:
@@ -338,8 +340,12 @@ public class TensinoDantouDai extends WeaponBase {
 
 	@EventHandler
 	public void onEntityDeath(EntityDeathEvent event) {
-		if(event.getEntity() instanceof Player) return;
-		incrementKillCount(event.getEntity().getKiller());
+		if(event.getEntity() instanceof Player) {
+			resetKillCount((Player) event.getEntity());
+		}
+		else {
+			incrementKillCount(event.getEntity().getKiller());
+		}
 	}
 
 
