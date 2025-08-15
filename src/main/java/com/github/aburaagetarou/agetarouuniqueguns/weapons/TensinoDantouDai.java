@@ -335,17 +335,21 @@ public class TensinoDantouDai extends WeaponBase {
 	 */
 	@EventHandler
 	public void onPlayerKill(PlayerKillEvent event) {
-		incrementKillCount(event.getPlayer());
+		Bukkit.getScheduler().runTaskLater(AgetarouUniqueGuns.getInstance(), () -> {
+			incrementKillCount(event.getPlayer());
+		}, 1L);
 	}
 
 	@EventHandler
 	public void onEntityDeath(EntityDeathEvent event) {
-		if(event.getEntity() instanceof Player) {
-			resetKillCount((Player) event.getEntity());
-		}
-		else {
-			incrementKillCount(event.getEntity().getKiller());
-		}
+		Bukkit.getScheduler().runTaskLater(AgetarouUniqueGuns.getInstance(), () -> {
+			if(event.getEntity() instanceof Player) {
+				resetKillCount((Player) event.getEntity());
+			}
+			else {
+				incrementKillCount(event.getEntity().getKiller());
+			}
+		}, 1L);
 	}
 
 
