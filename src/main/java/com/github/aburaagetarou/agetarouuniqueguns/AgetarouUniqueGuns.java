@@ -63,9 +63,11 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 		Bukkit.getPluginManager().registerEvents(new MosinEndofChristmas(), this);
 		Bukkit.getPluginManager().registerEvents(new Kar98kWhiteShark(), this);
 		Bukkit.getPluginManager().registerEvents(new Mosin_triumphant_song(), this);
+		Bukkit.getPluginManager().registerEvents(new AntiOnePunchMan(), this);
 
 		// タイマー開始
 		EPT_Jager.initTimer();
+		AntiOnePunchMan.initTimer();
 		Sorcerers_Rod.initManaRefillTask();
 		Sorcerers_Rod.initCPSCheckTask();
 
@@ -77,6 +79,7 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 
 		// タイマー停止
 		EPT_Jager.stopTimer();
+		AntiOnePunchMan.stopTimer();
 		Sorcerers_Rod.stopManaRefillTask();
 		Sorcerers_Rod.stopCPSCheckTask();
 
