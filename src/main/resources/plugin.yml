@@ -17,3 +17,6 @@ permisssions:
   agetarouuniqueguns.setvariable:
     description: AgetarouUniqueGuns debug
     default: op
+  agetarouuniqueguns.ncmanual:
+    description: AgetarouUniqueGuns send namechange manual
+    default: op

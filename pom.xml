@@ -40,6 +40,16 @@
                         </goals>
                         <configuration>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <relocations>
+                                <relocation>
+                                    <pattern>co.aikar.commands</pattern>
+                                    <shadedPattern>com.github.aburaagetarou.acf</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>co.aikar.locales</pattern>
+                                    <shadedPattern>com.github.aburaagetarou.locales</shadedPattern>
+                                </relocation>
+                            </relocations>
                         </configuration>
                     </execution>
                 </executions>
@@ -55,12 +65,33 @@
 
     <repositories>
         <repository>
-            <id>papermc-repo</id>
-            <url>https://papermc.io/repo/repository/maven-public/</url>
+            <id>papermc</id>
+            <url>https://repo.papermc.io/repository/maven-public/</url>
         </repository>
+
+        <repository>
+            <id>azisaba-repo</id>
+            <url>https://repository.azisaba.net/repository/maven-public/</url>
+        </repository>
+
+        <repository>
+            <id>deecaad-repo</id>
+            <url>https://repo.deecaad.com/repository/public/</url>
+        </repository>
+
+        <repository>
+            <id>aikar</id>
+            <url>https://repo.aikar.co/content/groups/omni/</url>
+        </repository>
+
         <repository>
             <id>sonatype</id>
             <url>https://oss.sonatype.org/content/groups/public/</url>
+        </repository>
+
+        <repository>
+            <id>jitpack.io</id>
+            <url>https://jitpack.io</url>
         </repository>
     </repositories>
 
@@ -71,30 +102,35 @@
             <version>1.16.5-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
+
         <dependency>
             <groupId>com.shampaggon</groupId>
             <artifactId>CrackShot</artifactId>
             <version>0.98.11</version>
             <scope>provided</scope>
         </dependency>
+
         <dependency>
             <groupId>me.deecaad</groupId>
             <artifactId>CrackShotPlus</artifactId>
             <version>1.108</version>
             <scope>provided</scope>
         </dependency>
+
         <dependency>
             <groupId>net.azisaba.leoncsaddon</groupId>
             <artifactId>LeonCSAddon</artifactId>
             <version>1.0-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
+
         <dependency>
             <groupId>net.azisaba</groupId>
             <artifactId>LeonGunWar</artifactId>
             <version>dev</version>
             <scope>provided</scope>
         </dependency>
+
         <dependency>
             <groupId>co.aikar</groupId>
             <artifactId>acf-paper</artifactId>
