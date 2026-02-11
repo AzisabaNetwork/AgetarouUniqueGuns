@@ -67,6 +67,9 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 		Bukkit.getPluginManager().registerEvents(new Mosin_triumphant_song2(), this);
 		Bukkit.getPluginManager().registerEvents(new NC_Kar98kWhiteShark_Akimarugon(), this);
 		Bukkit.getPluginManager().registerEvents(new NC_Mosin_EndofChristmas_HurutaniHimawari(), this);
+		Bukkit.getPluginManager().registerEvents(new testweapon_damage_to_ammo(), this);
+		Bukkit.getPluginManager().registerEvents(new testweapon_instant_reload(), this);
+		Bukkit.getPluginManager().registerEvents(new testweapon_block_explode(), this);
 
 
 		// タイマー開始
