@@ -51,7 +51,10 @@ public class UniversalWeaponSystem implements Listener {
         String title = cs.getWeaponTitle(item);
         if (title == null) return;
 
-        ConfigurationSection sec = WeaponConfig.getWeaponConfig(title).getConfigurationSection("Instant_Reload");
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
+        if (root == null) return; // ★ NPE対策
+
+        ConfigurationSection sec = root.getConfigurationSection("Instant_Reload");
         if (sec != null && sec.getBoolean("Enable", false) && sec.getBoolean("Reload_On_Sneak", true)) {
             String cdKey = p.getUniqueId().toString() + "_Instant_Reload";
             if (cooldownMap.getOrDefault(cdKey, 0L) <= System.currentTimeMillis()) {
@@ -62,7 +65,10 @@ public class UniversalWeaponSystem implements Listener {
 
     @EventHandler
     public void onReload(WeaponReloadEvent event) {
-        executeGenericFeature(event.getPlayer(), event.getWeaponTitle(), "Instant_Reload", () -> {
+        String title = event.getWeaponTitle();
+        if (title == null) return; // ★ NPE対策
+
+        executeGenericFeature(event.getPlayer(), title, "Instant_Reload", () -> {
             event.setReloadDuration(0);
             return true;
         });
@@ -80,6 +86,7 @@ public class UniversalWeaponSystem implements Listener {
         if (title == null) return;
 
         ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
+        if (root == null) return; // ★ NPE対策
 
         // シフト特殊弾
         if (proj.hasMetadata("CustomExplosive")) {
@@ -104,9 +111,12 @@ public class UniversalWeaponSystem implements Listener {
     public void onHitBlock(WeaponHitBlockEvent event) {
         if (isExplosionLock) return;
         String title = event.getWeaponTitle();
-        ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
-        ConfigurationSection sec = root.getConfigurationSection("On_Hit_Explosion");
+        if (title == null) return; // ★ NPE対策
 
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
+        if (root == null) return; // ★ NPE対策
+
+        ConfigurationSection sec = root.getConfigurationSection("On_Hit_Explosion");
         if (sec != null && sec.getBoolean("Enable", false)) {
             if (checkConditions(event.getPlayer(), "On_Hit_Explosion", sec)) {
                 double chance = sec.getDouble("Explosion_Chance_Block", 0.0);
@@ -119,13 +129,10 @@ public class UniversalWeaponSystem implements Listener {
     }
 
     private void executeExplosion(Player attacker, Location loc, String title) {
-        // ロックをかけて二重発動を阻止
         isExplosionLock = true;
         try {
-            // CSのAPIを使用。これによりDamage_MultiplierやExplosion_No_Griefが100%反映されます。
             API.getCSUtility().generateExplosion(attacker, loc, title);
         } finally {
-            // 処理後に必ずロック解除
             isExplosionLock = false;
         }
     }
@@ -138,7 +145,6 @@ public class UniversalWeaponSystem implements Listener {
 
         cooldownMap.put(cdKey, System.currentTimeMillis() + (cdTicks * 50L));
 
-        // モデルID変更
         if (sec.contains("Custom_Model_Data_CD")) {
             ItemStack item = p.getInventory().getItemInMainHand();
             ItemMeta meta = item.getItemMeta();
@@ -167,20 +173,29 @@ public class UniversalWeaponSystem implements Listener {
         }
 
         if (sec.contains("Delay_Bar")) startDelayBar(p, sec.getConfigurationSection("Delay_Bar"), cdTicks);
-        handleFeedback(p, sec);
+        // フィードバックは executeGenericFeature 側で一括処理するためここでは呼ばない（二重表示防止）
     }
 
     // --- その他ユーティリティ (射撃・ダメージ) ---
     @EventHandler
     public void onShoot(WeaponShootEvent event) {
-        executeGenericFeature(event.getPlayer(), event.getWeaponTitle(), "Sneak_Explosive_Shot", () -> {
+        String title = event.getWeaponTitle();
+        if (title == null) return; // ★ NPE対策
+
+        executeGenericFeature(event.getPlayer(), title, "Sneak_Explosive_Shot", () -> {
             Player p = event.getPlayer();
-            ConfigurationSection sec = WeaponConfig.getWeaponConfig(event.getWeaponTitle()).getConfigurationSection("Sneak_Explosive_Shot");
+
+            // ★ NPE対策：executeGenericFeature側でrootとsecの存在は保証されているが、念のため安全に取得
+            ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
+            if(root == null) return false;
+            ConfigurationSection sec = root.getConfigurationSection("Sneak_Explosive_Shot");
+            if(sec == null) return false;
+
             int cost = sec.getInt("Extra_Ammo_Cost", 1);
             ItemStack item = p.getInventory().getItemInMainHand();
-            int currentAmmo = API.getCSDirector().getAmmoBetweenBrackets(p, event.getWeaponTitle(), item);
+            int currentAmmo = API.getCSDirector().getAmmoBetweenBrackets(p, title, item);
             if (currentAmmo >= cost) {
-                API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(currentAmmo - cost), event.getWeaponTitle());
+                API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(currentAmmo - cost), title);
                 event.getProjectile().setMetadata("CustomExplosive", new FixedMetadataValue(plugin, true));
                 return true;
             }
@@ -192,27 +207,39 @@ public class UniversalWeaponSystem implements Listener {
     public void onWeaponDamage(WeaponDamageEntityEvent event) {
         Player p = event.getPlayer();
         String title = event.getWeaponTitle();
-        if (title == null) return;
+        if (title == null) return; // ★ NPE対策
+
         executeGenericFeature(p, title, "On_Hit_Recovery", () -> { modifyAmmo(p, title, 1); return true; });
         executeGenericFeature(p, title, "Life_Steal", () -> {
-            ConfigurationSection sec = WeaponConfig.getWeaponConfig(title).getConfigurationSection("Life_Steal");
+            ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
+            if(root == null) return false;
+            ConfigurationSection sec = root.getConfigurationSection("Life_Steal");
+            if(sec == null) return false;
+
             double heal = event.getDamage() * sec.getDouble("Heal_Percent", 0.1);
             if (heal > 0) { p.setHealth(Math.min(p.getHealth() + heal, p.getMaxHealth())); return true; }
             return false;
         });
-        if (event.isHeadshot()) executeGenericFeature(p, title, "Headshot_Ammo_Recovery", () -> { modifyAmmo(p, title, 1); return true; });
+        if (event.isHeadshot()) {
+            executeGenericFeature(p, title, "Headshot_Ammo_Recovery", () -> { modifyAmmo(p, title, 1); return true; });
+        }
     }
 
+    // ★ 最も重要なNPEガードを実装した共通処理メソッド
     private void executeGenericFeature(Player p, String title, String feat, FeatureAction action) {
-        ConfigurationSection sec = WeaponConfig.getWeaponConfig(title).getConfigurationSection(feat);
-        if (sec == null || !sec.getBoolean("Enable", false)) return;
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
+        if (root == null) return; // ★ 設定が存在しない武器の場合は即終了
+
+        ConfigurationSection sec = root.getConfigurationSection(feat);
+        if (sec == null || !sec.getBoolean("Enable", false)) return; // ★ セクションがない、または無効なら終了
+
         if (!checkConditions(p, feat, sec)) return;
         if (ThreadLocalRandom.current().nextDouble() >= sec.getDouble("Chance", 1.0)) return;
+
         if (action.execute()) {
             applyCooldown(p, feat, sec);
-            if (sec.getInt("Cooldown_Ticks", 0) <= 0) {
-                handleFeedback(p, sec);
-            }
+            // クールダウンの有無に関わらず、発動した場合はフィードバック(音・メッセージ)を鳴らす
+            handleFeedback(p, sec);
         }
     }
 
@@ -234,8 +261,11 @@ public class UniversalWeaponSystem implements Listener {
             int i = 0;
             public void run() {
                 if (i >= ticks || !p.isOnline()) { this.cancel(); return; }
-                String bar = buildBar((double) i / ticks, sec);
-                p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(sec.getString("Action_Bar").replace("{bar}", bar))));
+                String actionStr = sec.getString("Action_Bar");
+                if(actionStr != null) {
+                    String bar = buildBar((double) i / ticks, sec);
+                    p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(actionStr.replace("{bar}", bar))));
+                }
                 i += 2;
             }
         }.runTaskTimer(plugin, 0L, 2L);
