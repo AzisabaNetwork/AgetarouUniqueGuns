@@ -72,6 +72,9 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 		Bukkit.getPluginManager().registerEvents(new testweapon_block_explode(), this);
 
 
+		getServer().getPluginManager().registerEvents(new UniversalWeaponSystem(this), this);
+
+
 		// タイマー開始
 		EPT_Jager.initTimer();
 		AntiOnePunchMan.initTimer();
