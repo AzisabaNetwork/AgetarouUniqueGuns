@@ -208,7 +208,12 @@ public class UniversalWeaponSystem implements Listener {
         if (sec == null || !sec.getBoolean("Enable", false)) return;
         if (!checkConditions(p, feat, sec)) return;
         if (ThreadLocalRandom.current().nextDouble() >= sec.getDouble("Chance", 1.0)) return;
-        if (action.execute()) applyCooldown(p, feat, sec);
+        if (action.execute()) {
+            applyCooldown(p, feat, sec);
+            if (sec.getInt("Cooldown_Ticks", 0) <= 0) {
+                handleFeedback(p, sec);
+            }
+        }
     }
 
     private boolean checkConditions(Player p, String feat, ConfigurationSection sec) {
