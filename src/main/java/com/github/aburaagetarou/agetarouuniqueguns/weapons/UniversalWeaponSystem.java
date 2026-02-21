@@ -26,8 +26,6 @@ import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
-import com.shampaggon.crackshot.events.WeaponPreShootEvent;
-import me.DeeCaaD.CrackShotPlus.Events.WeaponHeldEvent;
 
 
 import org.bukkit.event.player.PlayerItemHeldEvent;
@@ -42,7 +40,6 @@ public class UniversalWeaponSystem implements Listener {
     private final CSUtility cs = new CSUtility();
     private static boolean isExplosionLock = false;
     private final Map<String, Long> cooldownMap = new HashMap<>();
-    // プレイヤーごとの武器ロック解除時間を保持 (UUID -> 解除ミリ秒)
     private final Map<java.util.UUID, Long> switchLockMap = new HashMap<>();
 
     public UniversalWeaponSystem(JavaPlugin plugin) {
@@ -75,18 +72,17 @@ public class UniversalWeaponSystem implements Listener {
             // 2. 現在の弾数を取得
             int currentAmmo = API.getCSDirector().getAmmoBetweenBrackets(p, title, item);
 
-            // 3. 足したい数を取得 (設定になければ 1)
+            // 3. 足したい数を取得
             int addAmount = sec.getInt("Add_Amount", 1);
 
-            // 4. 新しい弾数を計算 (現在 + 追加)
+            // 4. 新しい弾数を計算
             int nextAmmo = currentAmmo + addAmount;
 
-            // ★ 対策：最大弾数を超えないように制限する
             if (magSize > 0 && nextAmmo > magSize) {
                 nextAmmo = magSize;
             }
 
-            // 5. 弾数を書き換え (modifyAmmo ではなく直接 replaceBrackets を使うのが確実です)
+            // 5. 弾数を書き換え
             API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(nextAmmo), title);
 
             // フィードバックとクールタイム
@@ -99,18 +95,15 @@ public class UniversalWeaponSystem implements Listener {
         ConfigurationSection config = WeaponConfig.getWeaponConfig(title);
         if (config == null) return 0;
 
-        // CrackShotの標準的なパス「Shoot.Capacity」を確認
         if (config.contains("Shoot.Capacity")) {
             return config.getInt("Shoot.Capacity");
         }
-        // もしダメなら「Reload.Reload_Amount」などを確認（武器によって異なるため）
         if (config.contains("Reload.Reload_Amount")) {
             return config.getInt("Reload.Reload_Amount");
         }
         return 0;
     }
 
-    // 優先順位を最高に設定することで、CrackShotの設定を上書きします
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onReload(WeaponReloadEvent event) {
         Player p = event.getPlayer();
@@ -172,10 +165,10 @@ public class UniversalWeaponSystem implements Listener {
     public void onHitBlock(WeaponHitBlockEvent event) {
         if (isExplosionLock) return;
         String title = event.getWeaponTitle();
-        if (title == null) return; // ★ NPE対策
+        if (title == null) return;
 
         ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
-        if (root == null) return; // ★ NPE対策
+        if (root == null) return;
 
         ConfigurationSection sec = root.getConfigurationSection("On_Hit_Explosion");
         if (sec != null && sec.getBoolean("Enable", false)) {
@@ -234,7 +227,6 @@ public class UniversalWeaponSystem implements Listener {
         }
 
         if (sec.contains("Delay_Bar")) startDelayBar(p, sec.getConfigurationSection("Delay_Bar"), cdTicks);
-        // フィードバックは executeGenericFeature 側で一括処理するためここでは呼ばない（二重表示防止）
     }
 
     // --- 5. 持ち替えロック機能 ---
@@ -280,7 +272,6 @@ public class UniversalWeaponSystem implements Listener {
         // ロック時間をミリ秒で保存
         switchLockMap.put(p.getUniqueId(), System.currentTimeMillis() + (ticks * 50L));
 
-        // フィードバック表示（音・メッセージ・バー）
         handleFeedback(p, sec);
         if (sec.contains("Delay_Bar")) {
             startDelayBar(p, sec.getConfigurationSection("Delay_Bar"), ticks);
@@ -318,7 +309,6 @@ public class UniversalWeaponSystem implements Listener {
             int currentAmmo = API.getCSDirector().getAmmoBetweenBrackets(p, title, item);
 
             if (currentAmmo >= cost) {
-                // 追加の弾数を消費
                 API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(currentAmmo - cost), title);
                 // 弾に爆発用のメタデータを付与
                 event.getProjectile().setMetadata("CustomExplosive", new FixedMetadataValue(plugin, true));
@@ -333,7 +323,7 @@ public class UniversalWeaponSystem implements Listener {
     public void onWeaponDamage(WeaponDamageEntityEvent event) {
         Player p = event.getPlayer();
         String title = event.getWeaponTitle();
-        if (title == null) return; // ★ NPE対策
+        if (title == null) return;
 
         executeGenericFeature(p, title, "On_Hit_Recovery", () -> { modifyAmmo(p, title, 1); return true; });
         executeGenericFeature(p, title, "Life_Steal", () -> {
@@ -351,10 +341,10 @@ public class UniversalWeaponSystem implements Listener {
         }
     }
 
-    // ★ 最も重要なNPEガードを実装した共通処理メソッド
+    // NPEガード
     private void executeGenericFeature(Player p, String title, String feat, FeatureAction action) {
         ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
-        if (root == null) return; // ★ 設定が存在しない武器の場合は即終了
+        if (root == null) return;
 
         ConfigurationSection sec = root.getConfigurationSection(feat);
         if (sec == null || !sec.getBoolean("Enable", false)) return; // ★ セクションがない、または無効なら終了
@@ -364,7 +354,6 @@ public class UniversalWeaponSystem implements Listener {
 
         if (action.execute()) {
             applyCooldown(p, feat, sec);
-            // クールダウンの有無に関わらず、発動した場合はフィードバック(音・メッセージ)を鳴らす
             handleFeedback(p, sec);
         }
     }
@@ -386,9 +375,7 @@ public class UniversalWeaponSystem implements Listener {
         new BukkitRunnable() {
             int i = 0;
             public void run() {
-                // クールタイム終了時
                 if (i >= ticks || !p.isOnline()) {
-                    // ★ 修正：終了時のメッセージを表示する
                     String endMsg = sec.getString("End_Action_Bar");
                     if (endMsg != null && !endMsg.isEmpty() && p.isOnline()) {
                         p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(endMsg)));
@@ -397,13 +384,12 @@ public class UniversalWeaponSystem implements Listener {
                     return;
                 }
 
-                // ゲージ表示中
                 String actionStr = sec.getString("Action_Bar");
                 if (actionStr != null) {
                     String bar = buildBar((double) i / ticks, sec);
                     p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(actionStr.replace("{bar}", bar))));
                 }
-                i += 2; // 2ティックごとに更新
+                i += 2;
             }
         }.runTaskTimer(plugin, 0L, 2L);
     }
@@ -435,10 +421,40 @@ public class UniversalWeaponSystem implements Listener {
     }
 
     private void handleFeedback(Player p, ConfigurationSection s) {
-        String snd = s.getString("Sound");
-        if (snd != null && !snd.isEmpty()) p.playSound(p.getLocation(), Sound.valueOf(snd), 1f, 1f);
         String msg = s.getString("Message");
-        if (msg != null && !msg.isEmpty()) p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(msg)));
+        if (msg != null && !msg.isEmpty()) {
+            p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(msg)));
+        }
+        String rawSounds = s.getString("Sounds");
+        if (rawSounds == null || rawSounds.isEmpty()) return;
+
+        for (String entry : rawSounds.split(",")) {
+            String[] parts = entry.trim().split("-");
+            if (parts.length == 0) continue;
+
+            String soundName = parts[0].toUpperCase();
+            float volume = (parts.length > 1) ? Float.parseFloat(parts[1]) : 1.0f;
+            float pitch = (parts.length > 2) ? Float.parseFloat(parts[2]) : 1.0f;
+            int delay = (parts.length > 3) ? Integer.parseInt(parts[3]) : 0;
+
+            try {
+                Sound sound = Sound.valueOf(soundName);
+                if (delay <= 0) {
+                    p.playSound(p.getLocation(), sound, volume, pitch);
+                } else {
+                    new BukkitRunnable() {
+                        @Override
+                        public void run() {
+                            if (p.isOnline()) {
+                                p.playSound(p.getLocation(), sound, volume, pitch);
+                            }
+                        }
+                    }.runTaskLater(plugin, (long) delay);
+                }
+            } catch (IllegalArgumentException e) {
+                plugin.getLogger().warning("Invalid sound name in config: " + soundName);
+            }
+        }
     }
 
     private String translate(String s) { return s == null ? "" : ChatColor.translateAlternateColorCodes('&', s); }
