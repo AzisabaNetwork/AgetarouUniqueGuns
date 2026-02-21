@@ -67,6 +67,9 @@ public class UniversalWeaponSystem implements Listener {
 
             int magSize = root.getInt("Shoot.Capacity", 0);
             int currentAmmo = API.getCSDirector().getAmmoBetweenBrackets(p, title, item);
+            if (magSize > 0 && currentAmmo >= magSize) {
+                return;
+            }
             int addAmount = sec.getInt("Add_Amount", 1);
             int nextAmmo = currentAmmo + addAmount;
 
