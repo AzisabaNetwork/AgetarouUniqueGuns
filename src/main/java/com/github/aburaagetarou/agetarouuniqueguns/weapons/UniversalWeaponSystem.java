@@ -26,6 +26,11 @@ import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
+import com.shampaggon.crackshot.events.WeaponPreShootEvent;
+import me.DeeCaaD.CrackShotPlus.Events.WeaponHeldEvent;
+
+
+import org.bukkit.event.player.PlayerItemHeldEvent;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -37,6 +42,8 @@ public class UniversalWeaponSystem implements Listener {
     private final CSUtility cs = new CSUtility();
     private static boolean isExplosionLock = false;
     private final Map<String, Long> cooldownMap = new HashMap<>();
+    // プレイヤーごとの武器ロック解除時間を保持 (UUID -> 解除ミリ秒)
+    private final Map<java.util.UUID, Long> switchLockMap = new HashMap<>();
 
     public UniversalWeaponSystem(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -48,30 +55,84 @@ public class UniversalWeaponSystem implements Listener {
         if (!event.isSneaking()) return;
         Player p = event.getPlayer();
         ItemStack item = p.getInventory().getItemInMainHand();
+
         String title = cs.getWeaponTitle(item);
         if (title == null) return;
 
         ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
-        if (root == null) return; // ★ NPE対策
+        if (root == null) return;
 
         ConfigurationSection sec = root.getConfigurationSection("Instant_Reload");
-        if (sec != null && sec.getBoolean("Enable", false) && sec.getBoolean("Reload_On_Sneak", true)) {
-            String cdKey = p.getUniqueId().toString() + "_Instant_Reload";
-            if (cooldownMap.getOrDefault(cdKey, 0L) <= System.currentTimeMillis()) {
-                p.performCommand("shot reload");
+        if (sec == null || !sec.getBoolean("Enable", false)) return;
+
+        // クールタイムチェック
+        String cdKey = p.getUniqueId().toString() + "_Instant_Reload";
+        if (cooldownMap.getOrDefault(cdKey, 0L) <= System.currentTimeMillis()) {
+
+            // 1. 最大弾数を取得
+            int magSize = root.getInt("Shoot.Capacity", 0);
+
+            // 2. 現在の弾数を取得
+            int currentAmmo = API.getCSDirector().getAmmoBetweenBrackets(p, title, item);
+
+            // 3. 足したい数を取得 (設定になければ 1)
+            int addAmount = sec.getInt("Add_Amount", 1);
+
+            // 4. 新しい弾数を計算 (現在 + 追加)
+            int nextAmmo = currentAmmo + addAmount;
+
+            // ★ 対策：最大弾数を超えないように制限する
+            if (magSize > 0 && nextAmmo > magSize) {
+                nextAmmo = magSize;
             }
+
+            // 5. 弾数を書き換え (modifyAmmo ではなく直接 replaceBrackets を使うのが確実です)
+            API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(nextAmmo), title);
+
+            // フィードバックとクールタイム
+            handleFeedback(p, sec);
+            applyCooldown(p, "Instant_Reload", sec);
         }
     }
 
-    @EventHandler
-    public void onReload(WeaponReloadEvent event) {
-        String title = event.getWeaponTitle();
-        if (title == null) return; // ★ NPE対策
+    private int getMagSize(String title) {
+        ConfigurationSection config = WeaponConfig.getWeaponConfig(title);
+        if (config == null) return 0;
 
-        executeGenericFeature(event.getPlayer(), title, "Instant_Reload", () -> {
-            event.setReloadDuration(0);
-            return true;
-        });
+        // CrackShotの標準的なパス「Shoot.Capacity」を確認
+        if (config.contains("Shoot.Capacity")) {
+            return config.getInt("Shoot.Capacity");
+        }
+        // もしダメなら「Reload.Reload_Amount」などを確認（武器によって異なるため）
+        if (config.contains("Reload.Reload_Amount")) {
+            return config.getInt("Reload.Reload_Amount");
+        }
+        return 0;
+    }
+
+    // 優先順位を最高に設定することで、CrackShotの設定を上書きします
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onReload(WeaponReloadEvent event) {
+        Player p = event.getPlayer();
+        String title = event.getWeaponTitle();
+        if (title == null) return;
+
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
+        if (root == null) return;
+
+        ConfigurationSection sec = root.getConfigurationSection("Instant_Reload");
+        if (sec == null || !sec.getBoolean("Enable", false)) return;
+
+        if (sec.getBoolean("Reload_On_Sneak", false) && p.isSneaking()) {
+            // すでに始まってしまった通常リロードの時間を最小(1)にする
+            event.setReloadDuration(1);
+
+            // 弾を補充
+            int magSize = root.getInt("Shoot.Capacity", 0);
+            if (magSize > 0) {
+                fillAmmo(p, title, magSize);
+            }
+        }
     }
 
     // --- 2. 爆発制御 (二重防止 & CS設定の完全適用) ---
@@ -176,32 +237,97 @@ public class UniversalWeaponSystem implements Listener {
         // フィードバックは executeGenericFeature 側で一括処理するためここでは呼ばない（二重表示防止）
     }
 
+    // --- 5. 持ち替えロック機能 ---
+    @EventHandler
+    public void onItemHeld(PlayerItemHeldEvent event) {
+        Player p = event.getPlayer();
+        ItemStack item = p.getInventory().getItem(event.getNewSlot());
+        String title = cs.getWeaponTitle(item);
+        applySwitchLock(p, title);
+    }
+
+    @EventHandler
+    public void onWeaponHeld(me.DeeCaaD.CrackShotPlus.Events.WeaponHeldEvent event) {
+        // 3枚目の画像で確認した通り、CSP 1.108 のこのイベントには getPlayer() があります
+        Player p = event.getPlayer();
+        if (p == null) return;
+
+        // 武器名を取得してロックを適用
+        applySwitchLock(p, event.getWeaponTitle());
+    }
+
+    /**
+     * ロックを適用する共通メソッド
+     */
+    private void applySwitchLock(Player p, String title) {
+        if (p == null || title == null) {
+            if (p != null) switchLockMap.remove(p.getUniqueId());
+            return;
+        }
+
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
+        if (root == null) return;
+
+        ConfigurationSection sec = root.getConfigurationSection("Switch_Lock");
+        if (sec == null || !sec.getBoolean("Enable", false)) {
+            switchLockMap.remove(p.getUniqueId());
+            return;
+        }
+
+        int ticks = sec.getInt("Lock_Ticks", 0);
+        if (ticks <= 0) return;
+
+        // ロック時間をミリ秒で保存
+        switchLockMap.put(p.getUniqueId(), System.currentTimeMillis() + (ticks * 50L));
+
+        // フィードバック表示（音・メッセージ・バー）
+        handleFeedback(p, sec);
+        if (sec.contains("Delay_Bar")) {
+            startDelayBar(p, sec.getConfigurationSection("Delay_Bar"), ticks);
+        }
+    }
+
     // --- その他ユーティリティ (射撃・ダメージ) ---
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPreShoot(com.shampaggon.crackshot.events.WeaponPreShootEvent event) {
+        Player p = event.getPlayer();
+        // switchLockMap から解除時刻を取得
+        Long unlockTime = switchLockMap.get(p.getUniqueId());
+
+        if (unlockTime != null && unlockTime > System.currentTimeMillis()) {
+            // 解除時刻より前なら、射撃イベントそのものをキャンセルする
+            event.setCancelled(true);
+        }
+    }
     @EventHandler
     public void onShoot(WeaponShootEvent event) {
         String title = event.getWeaponTitle();
-        if (title == null) return; // ★ NPE対策
+        if (title == null) return;
 
+        // スニーク特殊弾のロジック
         executeGenericFeature(event.getPlayer(), title, "Sneak_Explosive_Shot", () -> {
             Player p = event.getPlayer();
 
-            // ★ NPE対策：executeGenericFeature側でrootとsecの存在は保証されているが、念のため安全に取得
             ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
-            if(root == null) return false;
+            if (root == null) return false;
             ConfigurationSection sec = root.getConfigurationSection("Sneak_Explosive_Shot");
-            if(sec == null) return false;
+            if (sec == null) return false;
 
             int cost = sec.getInt("Extra_Ammo_Cost", 1);
             ItemStack item = p.getInventory().getItemInMainHand();
             int currentAmmo = API.getCSDirector().getAmmoBetweenBrackets(p, title, item);
+
             if (currentAmmo >= cost) {
+                // 追加の弾数を消費
                 API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(currentAmmo - cost), title);
+                // 弾に爆発用のメタデータを付与
                 event.getProjectile().setMetadata("CustomExplosive", new FixedMetadataValue(plugin, true));
                 return true;
             }
             return false;
         });
     }
+
 
     @EventHandler
     public void onWeaponDamage(WeaponDamageEntityEvent event) {
@@ -260,13 +386,24 @@ public class UniversalWeaponSystem implements Listener {
         new BukkitRunnable() {
             int i = 0;
             public void run() {
-                if (i >= ticks || !p.isOnline()) { this.cancel(); return; }
+                // クールタイム終了時
+                if (i >= ticks || !p.isOnline()) {
+                    // ★ 修正：終了時のメッセージを表示する
+                    String endMsg = sec.getString("End_Action_Bar");
+                    if (endMsg != null && !endMsg.isEmpty() && p.isOnline()) {
+                        p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(endMsg)));
+                    }
+                    this.cancel();
+                    return;
+                }
+
+                // ゲージ表示中
                 String actionStr = sec.getString("Action_Bar");
-                if(actionStr != null) {
+                if (actionStr != null) {
                     String bar = buildBar((double) i / ticks, sec);
                     p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(actionStr.replace("{bar}", bar))));
                 }
-                i += 2;
+                i += 2; // 2ティックごとに更新
             }
         }.runTaskTimer(plugin, 0L, 2L);
     }
@@ -283,6 +420,17 @@ public class UniversalWeaponSystem implements Listener {
         if (t.equals(cs.getWeaponTitle(i))) {
             int c = API.getCSDirector().getAmmoBetweenBrackets(p, t, i);
             API.getCSDirector().csminion.replaceBrackets(i, String.valueOf(c + a), t);
+        }
+    }
+
+    /**
+     * 弾を指定数に書き換えるユーティリティ
+     */
+    private void fillAmmo(Player p, String title, int amount) {
+        ItemStack item = p.getInventory().getItemInMainHand();
+        if (title.equals(cs.getWeaponTitle(item))) {
+            // CrackShotPlus APIを使用して弾数を書き換え
+            API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(amount), title);
         }
     }
 
