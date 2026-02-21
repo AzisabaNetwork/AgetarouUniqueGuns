@@ -26,8 +26,8 @@ import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
-
-
+import com.shampaggon.crackshot.events.WeaponPreShootEvent;
+import me.DeeCaaD.CrackShotPlus.Events.WeaponHeldEvent;
 import org.bukkit.event.player.PlayerItemHeldEvent;
 
 import java.util.HashMap;
@@ -62,32 +62,23 @@ public class UniversalWeaponSystem implements Listener {
         ConfigurationSection sec = root.getConfigurationSection("Instant_Reload");
         if (sec == null || !sec.getBoolean("Enable", false)) return;
 
-        // クールタイムチェック
         String cdKey = p.getUniqueId().toString() + "_Instant_Reload";
         if (cooldownMap.getOrDefault(cdKey, 0L) <= System.currentTimeMillis()) {
 
-            // 1. 最大弾数を取得
             int magSize = root.getInt("Shoot.Capacity", 0);
-
-            // 2. 現在の弾数を取得
             int currentAmmo = API.getCSDirector().getAmmoBetweenBrackets(p, title, item);
-
-            // 3. 足したい数を取得
             int addAmount = sec.getInt("Add_Amount", 1);
-
-            // 4. 新しい弾数を計算
             int nextAmmo = currentAmmo + addAmount;
 
             if (magSize > 0 && nextAmmo > magSize) {
                 nextAmmo = magSize;
             }
 
-            // 5. 弾数を書き換え
             API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(nextAmmo), title);
 
-            // フィードバックとクールタイム
             handleFeedback(p, sec);
-            applyCooldown(p, "Instant_Reload", sec);
+
+            applyCooldown(p, "Instant_Reload", sec, title);
         }
     }
 
@@ -117,10 +108,8 @@ public class UniversalWeaponSystem implements Listener {
         if (sec == null || !sec.getBoolean("Enable", false)) return;
 
         if (sec.getBoolean("Reload_On_Sneak", false) && p.isSneaking()) {
-            // すでに始まってしまった通常リロードの時間を最小(1)にする
             event.setReloadDuration(1);
 
-            // 弾を補充
             int magSize = root.getInt("Shoot.Capacity", 0);
             if (magSize > 0) {
                 fillAmmo(p, title, magSize);
@@ -140,22 +129,20 @@ public class UniversalWeaponSystem implements Listener {
         if (title == null) return;
 
         ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
-        if (root == null) return; // ★ NPE対策
+        if (root == null) return;
 
-        // シフト特殊弾
         if (proj.hasMetadata("CustomExplosive")) {
             executeExplosion(p, event.getEntity().getLocation(), title);
             return;
         }
 
-        // 通常命中爆発
         ConfigurationSection sec = root.getConfigurationSection("On_Hit_Explosion");
         if (sec != null && sec.getBoolean("Enable", false)) {
             if (checkConditions(p, "On_Hit_Explosion", sec)) {
                 double chance = sec.getDouble("Explosion_Chance_Entity", 0.0);
                 if (ThreadLocalRandom.current().nextDouble() < chance) {
                     executeExplosion(p, event.getEntity().getLocation(), title);
-                    applyCooldown(p, "On_Hit_Explosion", sec);
+                    applyCooldown(p, "On_Hit_Explosion", sec, title);
                 }
             }
         }
@@ -176,7 +163,7 @@ public class UniversalWeaponSystem implements Listener {
                 double chance = sec.getDouble("Explosion_Chance_Block", 0.0);
                 if (ThreadLocalRandom.current().nextDouble() < chance) {
                     executeExplosion(event.getPlayer(), event.getBlock().getLocation(), title);
-                    applyCooldown(event.getPlayer(), "On_Hit_Explosion", sec);
+                    applyCooldown(event.getPlayer(), "On_Hit_Explosion", sec, title);
                 }
             }
         }
@@ -192,7 +179,7 @@ public class UniversalWeaponSystem implements Listener {
     }
 
     // --- 3. クールダウン管理とモデル変更 ---
-    private void applyCooldown(Player p, String feat, ConfigurationSection sec) {
+    private void applyCooldown(Player p, String feat, ConfigurationSection sec, String title) {
         String cdKey = p.getUniqueId().toString() + "_" + feat;
         int cdTicks = sec.getInt("Cooldown_Ticks", 0);
         if (cdTicks <= 0) return;
@@ -226,7 +213,9 @@ public class UniversalWeaponSystem implements Listener {
             }
         }
 
-        if (sec.contains("Delay_Bar")) startDelayBar(p, sec.getConfigurationSection("Delay_Bar"), cdTicks);
+        if (sec.contains("Delay_Bar")) {
+            startDelayBar(p, sec.getConfigurationSection("Delay_Bar"), cdTicks, title);
+        }
     }
 
     // --- 5. 持ち替えロック機能 ---
@@ -240,17 +229,11 @@ public class UniversalWeaponSystem implements Listener {
 
     @EventHandler
     public void onWeaponHeld(me.DeeCaaD.CrackShotPlus.Events.WeaponHeldEvent event) {
-        // 3枚目の画像で確認した通り、CSP 1.108 のこのイベントには getPlayer() があります
         Player p = event.getPlayer();
         if (p == null) return;
-
-        // 武器名を取得してロックを適用
         applySwitchLock(p, event.getWeaponTitle());
     }
 
-    /**
-     * ロックを適用する共通メソッド
-     */
     private void applySwitchLock(Player p, String title) {
         if (p == null || title == null) {
             if (p != null) switchLockMap.remove(p.getUniqueId());
@@ -269,12 +252,11 @@ public class UniversalWeaponSystem implements Listener {
         int ticks = sec.getInt("Lock_Ticks", 0);
         if (ticks <= 0) return;
 
-        // ロック時間をミリ秒で保存
         switchLockMap.put(p.getUniqueId(), System.currentTimeMillis() + (ticks * 50L));
 
         handleFeedback(p, sec);
         if (sec.contains("Delay_Bar")) {
-            startDelayBar(p, sec.getConfigurationSection("Delay_Bar"), ticks);
+            startDelayBar(p, sec.getConfigurationSection("Delay_Bar"), ticks, title);
         }
     }
 
@@ -282,20 +264,18 @@ public class UniversalWeaponSystem implements Listener {
     @EventHandler(priority = EventPriority.LOWEST)
     public void onPreShoot(com.shampaggon.crackshot.events.WeaponPreShootEvent event) {
         Player p = event.getPlayer();
-        // switchLockMap から解除時刻を取得
         Long unlockTime = switchLockMap.get(p.getUniqueId());
 
         if (unlockTime != null && unlockTime > System.currentTimeMillis()) {
-            // 解除時刻より前なら、射撃イベントそのものをキャンセルする
             event.setCancelled(true);
         }
     }
+
     @EventHandler
     public void onShoot(WeaponShootEvent event) {
         String title = event.getWeaponTitle();
         if (title == null) return;
 
-        // スニーク特殊弾のロジック
         executeGenericFeature(event.getPlayer(), title, "Sneak_Explosive_Shot", () -> {
             Player p = event.getPlayer();
 
@@ -310,7 +290,6 @@ public class UniversalWeaponSystem implements Listener {
 
             if (currentAmmo >= cost) {
                 API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(currentAmmo - cost), title);
-                // 弾に爆発用のメタデータを付与
                 event.getProjectile().setMetadata("CustomExplosive", new FixedMetadataValue(plugin, true));
                 return true;
             }
@@ -341,19 +320,18 @@ public class UniversalWeaponSystem implements Listener {
         }
     }
 
-    // NPEガード
     private void executeGenericFeature(Player p, String title, String feat, FeatureAction action) {
         ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
         if (root == null) return;
 
         ConfigurationSection sec = root.getConfigurationSection(feat);
-        if (sec == null || !sec.getBoolean("Enable", false)) return; // ★ セクションがない、または無効なら終了
+        if (sec == null || !sec.getBoolean("Enable", false)) return;
 
         if (!checkConditions(p, feat, sec)) return;
         if (ThreadLocalRandom.current().nextDouble() >= sec.getDouble("Chance", 1.0)) return;
 
         if (action.execute()) {
-            applyCooldown(p, feat, sec);
+            applyCooldown(p, feat, sec, title);
             handleFeedback(p, sec);
         }
     }
@@ -371,24 +349,47 @@ public class UniversalWeaponSystem implements Listener {
         return true;
     }
 
-    private void startDelayBar(Player p, ConfigurationSection sec, int ticks) {
+    private void startDelayBar(Player p, ConfigurationSection sec, int ticks, String weaponTitle) {
         new BukkitRunnable() {
             int i = 0;
             public void run() {
-                if (i >= ticks || !p.isOnline()) {
+                if (!p.isOnline()) {
+                    this.cancel();
+                    return;
+                }
+
+                // クールタイム終了の判定
+                if (i >= ticks) {
                     String endMsg = sec.getString("End_Action_Bar");
-                    if (endMsg != null && !endMsg.isEmpty() && p.isOnline()) {
+                    if (endMsg != null && !endMsg.isEmpty()) {
                         p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(endMsg)));
+                    }
+                    String endSound = sec.getString("End_Sound");
+                    if (endSound != null && !endSound.isEmpty()) {
+                        String[] parts = endSound.split("-");
+                        try {
+                            Sound s = Sound.valueOf(parts[0].toUpperCase());
+                            float vol = parts.length > 1 ? Float.parseFloat(parts[1]) : 1.0f;
+                            float pit = parts.length > 2 ? Float.parseFloat(parts[2]) : 1.0f;
+                            p.playSound(p.getLocation(), s, vol, pit);
+                        } catch (Exception e) {}
                     }
                     this.cancel();
                     return;
                 }
 
-                String actionStr = sec.getString("Action_Bar");
-                if (actionStr != null) {
-                    String bar = buildBar((double) i / ticks, sec);
-                    p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(actionStr.replace("{bar}", bar))));
+                ItemStack currentItem = p.getInventory().getItemInMainHand();
+                String currentTitle = cs.getWeaponTitle(currentItem);
+
+                // 違う武器を持っている場合はバーを描画しないが、時間は進める
+                if (currentTitle != null && currentTitle.equals(weaponTitle)) {
+                    String actionStr = sec.getString("Action_Bar");
+                    if (actionStr != null) {
+                        String bar = buildBar((double) i / ticks, sec);
+                        p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(actionStr.replace("{bar}", bar))));
+                    }
                 }
+
                 i += 2;
             }
         }.runTaskTimer(plugin, 0L, 2L);
@@ -409,13 +410,9 @@ public class UniversalWeaponSystem implements Listener {
         }
     }
 
-    /**
-     * 弾を指定数に書き換えるユーティリティ
-     */
     private void fillAmmo(Player p, String title, int amount) {
         ItemStack item = p.getInventory().getItemInMainHand();
         if (title.equals(cs.getWeaponTitle(item))) {
-            // CrackShotPlus APIを使用して弾数を書き換え
             API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(amount), title);
         }
     }
@@ -425,12 +422,16 @@ public class UniversalWeaponSystem implements Listener {
         if (msg != null && !msg.isEmpty()) {
             p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(msg)));
         }
+
         String rawSounds = s.getString("Sounds");
+        if (rawSounds == null || rawSounds.isEmpty()) {
+            rawSounds = s.getString("Sound");
+        }
         if (rawSounds == null || rawSounds.isEmpty()) return;
 
         for (String entry : rawSounds.split(",")) {
             String[] parts = entry.trim().split("-");
-            if (parts.length == 0) continue;
+            if (parts.length == 0 || parts[0].isEmpty()) continue;
 
             String soundName = parts[0].toUpperCase();
             float volume = (parts.length > 1) ? Float.parseFloat(parts[1]) : 1.0f;
