@@ -28,7 +28,7 @@ import java.util.Map;
  */
 public class AntiOnePunchMan implements Listener {
 
-    public final static String WEAPON_NAME = "AntiOnePunchMan";
+    public final static String WEAPON_NAME = "Deflection_Shield";
 
     public final static String KEY_MAX_DAMAGE_PER_TICK = "Max_Damage_Per_Tick";
     public final static String KEY_EFFECT_DURATION = "Effect_Duration";
