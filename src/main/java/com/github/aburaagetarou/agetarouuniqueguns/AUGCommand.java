@@ -30,11 +30,23 @@ public class AUGCommand extends BaseCommand {
 
 	@Subcommand("reload")
 	@CommandPermission("agetarouuniqueguns.reload")
-	@Description("設定情報を再読み込みします")
+	@Description("設定情報を再読み込みします。")
 	public void onReload(CommandSender sender) {
 
 		plugin.loadDefaultWeaponConfig();
 		sender.sendMessage("設定情報を再読み込みしました");
+	}
+
+	@Subcommand("ncmanual")
+	@CommandPermission("agetarouuniqueguns.ncmanual")
+	@Description("名前変更手順を送ります。")
+	public void onManual(CommandSender sender) {
+		// メッセージの送信のみ
+		sender.sendMessage("§e=== NamechangeManual §e===");
+		sender.sendMessage("§b1.§fネームド作成");
+		sender.sendMessage("§b2.§fAUGプラグイン側の名前変更元のweaponsをコピー、onEnableにリスナー登録");
+		sender.sendMessage("§b3.§fコピーしたもののjavaクラスの武器名の部分をcsのweaponIDに変更");
+		sender.sendMessage("§b4.§fplugins/AUG/weapons/AUG_NAME_CHANGE.ymlに登録");
 	}
 
 	@Subcommand("setvariable")
