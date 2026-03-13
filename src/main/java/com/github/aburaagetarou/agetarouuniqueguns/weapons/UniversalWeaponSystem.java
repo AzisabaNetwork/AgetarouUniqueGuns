@@ -264,13 +264,31 @@ public class UniversalWeaponSystem implements Listener {
     }
 
     // --- その他ユーティリティ (射撃・ダメージ) ---
-    @EventHandler(priority = EventPriority.LOWEST)
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onPreShoot(com.shampaggon.crackshot.events.WeaponPreShootEvent event) {
         Player p = event.getPlayer();
         Long unlockTime = switchLockMap.get(p.getUniqueId());
 
         if (unlockTime != null && unlockTime > System.currentTimeMillis()) {
             event.setCancelled(true);
+            
+            // 現在持っている武器のSwitch_Lock設定を取得
+            ItemStack item = p.getInventory().getItemInMainHand();
+            String title = cs.getWeaponTitle(item);
+            if (title != null) {
+                ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
+                if (root != null) {
+                    ConfigurationSection switchLockSec = root.getConfigurationSection("Switch_Lock");
+                    if (switchLockSec != null) {
+                        // configの射撃制限メッセージを使用
+                        String shootBlockMsg = switchLockSec.getString("Shoot_Block_Message");
+                        if (shootBlockMsg != null && !shootBlockMsg.isEmpty()) {
+                            p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(shootBlockMsg)));
+                        }
+                    }
+                }
+            }
+            return;
         }
     }
 
