@@ -424,10 +424,15 @@ public class UniversalWeaponSystem implements Listener {
         if (sec.getBoolean("Require_Sneak", false) && !p.isSneaking()) return false;
         String effStr = sec.getString("Required_Effect");
         if (effStr != null && !effStr.isEmpty()) {
+            boolean hasRequiredEffect = false;
             for (String eName : effStr.split(",")) {
                 PotionEffectType t = PotionEffectType.getByName(eName.trim().toUpperCase());
-                if (t != null && !p.hasPotionEffect(t)) return false;
+                if (t != null && p.hasPotionEffect(t)) {
+                    hasRequiredEffect = true;
+                    break;
+                }
             }
+            if (!hasRequiredEffect) return false;
         }
         return true;
     }
