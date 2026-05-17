@@ -73,7 +73,7 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 
 
 		getServer().getPluginManager().registerEvents(new UniversalWeaponSystem(this), this);
-
+		getServer().getPluginManager().registerEvents(new WeaponsSPMode(this), this);
 
 		// タイマー開始
 		EPT_Jager.initTimer();
