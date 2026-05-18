@@ -43,11 +43,11 @@ public class WeaponsSPMode implements Listener {
     // キルストリーク管理（streakKey → count）
     private final Map<UUID, Map<String, Integer>> weaponKillStreakMap = new HashMap<>();
 
-    // 元の武器管理（WhenChangeWeapon用）
     private final Map<UUID, String> originalWeaponMap = new HashMap<>();
+    private final Map<UUID, String> changedWeaponMap = new HashMap<>();
 
-    // KillStreakによる元の武器管理
     private final Map<UUID, String> killStreakOriginalWeaponMap = new HashMap<>();
+    private final Map<UUID, String> killStreakChangedWeaponMap = new HashMap<>();
 
     // キルストリークカウンター表示タスク
     private final Map<UUID, BukkitRunnable> counterTaskMap = new HashMap<>();
@@ -240,11 +240,6 @@ public class WeaponsSPMode implements Listener {
 
         addWeaponKillStreak(p, title);
 
-        UUID uuid = p.getUniqueId();
-        if (!originalWeaponMap.containsKey(uuid)) {
-            originalWeaponMap.put(uuid, title);
-        }
-
         checkWeaponChangeKillStreak(p, title);
     }
 
@@ -274,33 +269,13 @@ public class WeaponsSPMode implements Listener {
 
         handleDeathStreakReset(p);
 
-        // WhenChangeWeapon用：元の武器に戻す
-        String originalWeapon = originalWeaponMap.remove(uuid);
-        if (originalWeapon != null && !originalWeapon.isEmpty()) {
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    if (!p.isOnline()) return;
-                    giveWeapon(p, originalWeapon);
-                    p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                            new TextComponent(ChatColor.translateAlternateColorCodes('&', "&cキルストリークがリセットされました")));
-                }
-            }.runTaskLater(plugin, 1L);
-        }
+        restoreChangedWeaponIfPresent(p, changedWeaponMap.remove(uuid), originalWeaponMap.remove(uuid));
+        restoreChangedWeaponIfPresent(p, killStreakChangedWeaponMap.remove(uuid), killStreakOriginalWeaponMap.remove(uuid));
 
-        // KillStreak用：元の武器に戻す
-        String killStreakOriginalWeapon = killStreakOriginalWeaponMap.remove(uuid);
-        if (killStreakOriginalWeapon != null && !killStreakOriginalWeapon.isEmpty()) {
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    if (!p.isOnline()) return;
-                    giveWeapon(p, killStreakOriginalWeapon);
-                    p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                            new TextComponent(ChatColor.translateAlternateColorCodes('&', "&cKillStreak武器が元に戻りました")));
-                }
-            }.runTaskLater(plugin, 2L);
-        }
+        stopStreakCounter(p);
+        stopTimedWeaponChange(p);
+        jumpMap.remove(uuid);
+        lastYMap.remove(uuid);
     }
 
     // --- ログアウト時クリーンアップ ---
@@ -311,6 +286,8 @@ public class WeaponsSPMode implements Listener {
         jumpMap.remove(uuid);
         lastYMap.remove(uuid);
         originalWeaponMap.remove(uuid);
+        changedWeaponMap.remove(uuid);
+        killStreakChangedWeaponMap.remove(uuid);
         killStreakOriginalWeaponMap.remove(uuid);
         actionBarPauseMap.remove(uuid);
 
@@ -377,6 +354,7 @@ public class WeaponsSPMode implements Listener {
     }
 
     private void performWeaponChange(Player p, String currentWeapon, String targetWeapon, String triggerType) {
+        trackWeaponChange(p, currentWeapon, targetWeapon, false);
         replaceWeapon(p, targetWeapon);
 
         ConfigurationSection root = WeaponConfig.getWeaponConfig(currentWeapon);
@@ -659,6 +637,7 @@ public class WeaponsSPMode implements Listener {
             UUID uuid = p.getUniqueId();
             if (!killStreakOriginalWeaponMap.containsKey(uuid)) {
                 killStreakOriginalWeaponMap.put(uuid, weaponTitle);
+                trackWeaponChange(p, weaponTitle, changeWeapon, true);
             }
 
             if (eventConfig.getBoolean("Takeover_Streak", false)) {
@@ -732,6 +711,7 @@ public class WeaponsSPMode implements Listener {
             @Override
             public void run() {
                 if (!p.isOnline()) { this.cancel(); return; }
+                trackWeaponChange(p, weaponTitle, targetWeapon, false);
                 replaceWeapon(p, targetWeapon);
 
                 String sound = timedSection.getString("Sound");
@@ -798,6 +778,86 @@ public class WeaponsSPMode implements Listener {
     }
 
     // ===== ユーティリティ =====
+    private void trackWeaponChange(Player p, String currentWeapon, String targetWeapon, boolean killStreakChange) {
+        if (currentWeapon == null || targetWeapon == null || currentWeapon.isEmpty() || targetWeapon.isEmpty()) return;
+
+        UUID uuid = p.getUniqueId();
+        boolean returned = false;
+
+        if (targetWeapon.equals(originalWeaponMap.get(uuid))) {
+            originalWeaponMap.remove(uuid);
+            changedWeaponMap.remove(uuid);
+            returned = true;
+        }
+
+        if (targetWeapon.equals(killStreakOriginalWeaponMap.get(uuid))) {
+            killStreakOriginalWeaponMap.remove(uuid);
+            killStreakChangedWeaponMap.remove(uuid);
+            returned = true;
+        }
+
+        if (returned) return;
+
+        if (killStreakChange) {
+            killStreakOriginalWeaponMap.putIfAbsent(uuid, currentWeapon);
+            killStreakChangedWeaponMap.put(uuid, targetWeapon);
+        } else {
+            originalWeaponMap.putIfAbsent(uuid, currentWeapon);
+            changedWeaponMap.put(uuid, targetWeapon);
+        }
+    }
+
+    private void restoreChangedWeaponIfPresent(Player p, String changedWeapon, String originalWeapon) {
+        if (changedWeapon == null || originalWeapon == null || changedWeapon.isEmpty() || originalWeapon.isEmpty()) return;
+
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!p.isOnline()) return;
+
+                PlayerInventory inv = p.getInventory();
+                int slot = findWeaponSlot(inv, changedWeapon);
+                if (slot < 0) return;
+
+                inv.setItem(slot, null);
+                cs.giveWeapon(p, originalWeapon, 1);
+
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        if (!p.isOnline()) return;
+
+                        int generatedSlot = findWeaponSlot(inv, originalWeapon);
+                        if (generatedSlot < 0) return;
+
+                        ItemStack generated = inv.getItem(generatedSlot);
+                        ItemStack current = inv.getItem(slot);
+
+                        if (current != null && current.getType() != Material.AIR) {
+                            if (generatedSlot != slot) inv.setItem(generatedSlot, null);
+                            return;
+                        }
+
+                        if (generatedSlot != slot) {
+                            inv.setItem(slot, generated);
+                            inv.setItem(generatedSlot, null);
+                        }
+                        inv.setHeldItemSlot(slot);
+                    }
+                }.runTaskLater(plugin, 1L);
+            }
+        }.runTaskLater(plugin, 1L);
+    }
+
+    private int findWeaponSlot(PlayerInventory inv, String weaponName) {
+        for (int i = 0; i < inv.getSize(); i++) {
+            ItemStack item = inv.getItem(i);
+            if (item != null && weaponName.equals(cs.getWeaponTitle(item))) {
+                return i;
+            }
+        }
+        return -1;
+    }
 
     private void replaceWeapon(Player p, String weaponName) {
         new BukkitRunnable() {
