@@ -864,56 +864,58 @@ public class WeaponsSPMode implements Listener {
             @Override
             public void run() {
                 if (!p.isOnline()) return;
+
                 PlayerInventory inv = p.getInventory();
                 int replaceSlot = inv.getHeldItemSlot();
-                inv.setItem(replaceSlot, null);
-                cs.giveWeapon(p, weaponName, 1);
 
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
-                        if (!p.isOnline()) return;
-                        for (int i = 0; i < inv.getSize(); i++) {
-                            ItemStack item = inv.getItem(i);
-                            if (item != null && weaponName.equals(cs.getWeaponTitle(item))) {
-                                if (i != replaceSlot) {
-                                    inv.setItem(replaceSlot, item);
-                                    inv.setItem(i, null);
-                                }
-                                inv.setHeldItemSlot(replaceSlot);
-                                break;
-                            }
-                        }
-                        startStreakCounter(p, weaponName);
-                        startTimedWeaponChange(p, weaponName);
-                    }
-                }.runTaskLater(plugin, 1L);
+                inv.setItem(replaceSlot, null);
+                giveWeaponIntoSlot(p, weaponName, replaceSlot);
+
+                startStreakCounter(p, weaponName);
+                startTimedWeaponChange(p, weaponName);
             }
         }.runTaskLater(plugin, 1L);
     }
 
     private void giveWeapon(Player p, String weaponName) {
         PlayerInventory inv = p.getInventory();
-        int targetSlot = inv.getHeldItemSlot();
+        giveWeaponIntoSlot(p, weaponName, inv.getHeldItemSlot());
+
+        startStreakCounter(p, weaponName);
+        startTimedWeaponChange(p, weaponName);
+    }
+
+    private void giveWeaponIntoSlot(Player p, String weaponName, int targetSlot) {
+        if (!p.isOnline()) return;
+
+        PlayerInventory inv = p.getInventory();
+
+        ItemStack beforeTarget = inv.getItem(targetSlot);
+        inv.setItem(targetSlot, null);
+
         cs.giveWeapon(p, weaponName, 1);
 
         new BukkitRunnable() {
             @Override
             public void run() {
                 if (!p.isOnline()) return;
-                for (int i = 0; i < inv.getSize(); i++) {
-                    ItemStack item = inv.getItem(i);
-                    if (item != null && weaponName.equals(cs.getWeaponTitle(item))) {
-                        if (i != targetSlot) {
-                            inv.setItem(targetSlot, item);
-                            inv.setItem(i, null);
-                        }
-                        inv.setHeldItemSlot(targetSlot);
-                        break;
+
+                int generatedSlot = findWeaponSlot(inv, weaponName);
+                if (generatedSlot < 0) {
+                    if (inv.getItem(targetSlot) == null || inv.getItem(targetSlot).getType() == Material.AIR) {
+                        inv.setItem(targetSlot, beforeTarget);
                     }
+                    return;
                 }
-                startStreakCounter(p, weaponName);
-                startTimedWeaponChange(p, weaponName);
+
+                ItemStack generated = inv.getItem(generatedSlot);
+
+                if (generatedSlot != targetSlot) {
+                    inv.setItem(generatedSlot, null);
+                }
+
+                inv.setItem(targetSlot, generated);
+                inv.setHeldItemSlot(targetSlot);
             }
         }.runTaskLater(plugin, 1L);
     }
