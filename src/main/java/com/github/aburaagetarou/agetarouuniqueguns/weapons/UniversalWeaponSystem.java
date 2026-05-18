@@ -519,7 +519,34 @@ public class UniversalWeaponSystem implements Listener {
         }
     }
 
-    private String translate(String s) { return s == null ? "" : ChatColor.translateAlternateColorCodes('&', s); }
+    private String translate(String s) {
+        if (s == null) return "";
+
+        java.util.regex.Pattern hexPattern =
+                java.util.regex.Pattern.compile("&x(&[0-9a-fA-F]){6}");
+        java.util.regex.Matcher matcher = hexPattern.matcher(s);
+        StringBuffer sb = new StringBuffer();
+
+        while (matcher.find()) {
+            String hex = matcher.group().replace("&", "").substring(1);
+            try {
+                matcher.appendReplacement(
+                        sb,
+                        java.util.regex.Matcher.quoteReplacement(
+                                net.md_5.bungee.api.ChatColor.of("#" + hex).toString()
+                        )
+                );
+            } catch (Exception ignored) {
+                matcher.appendReplacement(
+                        sb,
+                        java.util.regex.Matcher.quoteReplacement(matcher.group())
+                );
+            }
+        }
+
+        matcher.appendTail(sb);
+        return ChatColor.translateAlternateColorCodes('&', sb.toString());
+    }
     private String repeat(String s, int n) { StringBuilder b = new StringBuilder(); for(int i=0; i<n; i++) b.append(s); return b.toString(); }
     @FunctionalInterface interface FeatureAction { boolean execute(); }
 }
