@@ -27,6 +27,9 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
+import org.bukkit.entity.LivingEntity;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -172,7 +175,7 @@ public class WeaponsSPMode implements Listener {
 
         boolean hasOffhandAction = false;
         for (ConfigurationSection costSec : getCostSections(eventSection)) {
-            for (String action : costSec.getString("Change_Weapons_WithAction", "").split(",")) {
+            for (String action : costSec.getString("Trigger_Action", "").split(",")) {
                 if (action.trim().equalsIgnoreCase("offhand")) {
                     hasOffhandAction = true;
                     break;
@@ -569,8 +572,8 @@ public class WeaponsSPMode implements Listener {
         ConfigurationSection maxSec = eventSection.getConfigurationSection("Cost_MaxCount");
         ConfigurationSection costSec = eventSection.getConfigurationSection("Cost_Count");
 
-        String maxAction = maxSec != null ? maxSec.getString("Change_Weapons_WithAction", "") : "";
-        String costAction = costSec != null ? costSec.getString("Change_Weapons_WithAction", "") : "";
+        String maxAction = maxSec != null ? maxSec.getString("Trigger_Action", "") : "";
+        String costAction = costSec != null ? costSec.getString("Trigger_Action", "") : "";
 
         // 満タン時 → Cost_MaxCount を発火
         if (isMax && maxSec != null && matchesAction(maxAction, triggerAction, p)) {
@@ -630,6 +633,8 @@ public class WeaponsSPMode implements Listener {
             consumeAmount = eventConfig.getInt("Cost_Count", 1);
         }
         if (!consumeWeaponKillStreak(p, weaponTitle, consumeAmount)) return;
+
+        applyStreakEffects(p, eventConfig);
 
         // 武器変更
         String changeWeapon = eventConfig.getString("Change_Weapons");
@@ -918,6 +923,88 @@ public class WeaponsSPMode implements Listener {
                 inv.setHeldItemSlot(targetSlot);
             }
         }.runTaskLater(plugin, 1L);
+    }
+
+    private void applyStreakEffects(Player p, ConfigurationSection eventConfig) {
+        applyPotionEffects(p, eventConfig.getConfigurationSection("Potion_Effects"));
+        StreakParticleEffect.play(plugin, p, eventConfig.getConfigurationSection("Particle_Effect"));
+
+        double heal = eventConfig.getDouble("Heal", 0.0);
+        if (heal > 0.0) {
+            p.setHealth(Math.min(p.getMaxHealth(), p.getHealth() + heal));
+        }
+
+        int food = eventConfig.getInt("Food", 0);
+        if (food != 0) {
+            p.setFoodLevel(Math.max(0, Math.min(20, p.getFoodLevel() + food)));
+        }
+
+        double selfDamage = eventConfig.getDouble("Self_Damage", 0.0);
+        if (selfDamage > 0.0) {
+            p.damage(selfDamage);
+        }
+
+        applyAreaPotionEffects(p, eventConfig.getConfigurationSection("Ally_Potion_Effects"), true);
+        applyAreaPotionEffects(p, eventConfig.getConfigurationSection("Enemy_Potion_Effects"), false);
+    }
+
+    private void applyPotionEffects(LivingEntity entity, ConfigurationSection effects) {
+        if (effects == null) return;
+
+        for (String key : effects.getKeys(false)) {
+            PotionEffectType type = PotionEffectType.getByName(key.toUpperCase());
+            if (type == null) continue;
+
+            ConfigurationSection sec = effects.getConfigurationSection(key);
+            int duration = 100;
+            int amplifier = 0;
+            boolean ambient = false;
+            boolean particles = true;
+            boolean icon = true;
+
+            if (sec != null) {
+                duration = sec.getInt("Duration", duration);
+                amplifier = sec.getInt("Amplifier", amplifier);
+                ambient = sec.getBoolean("Ambient", ambient);
+                particles = sec.getBoolean("Particles", particles);
+                icon = sec.getBoolean("Icon", icon);
+            }
+
+            entity.addPotionEffect(new PotionEffect(type, duration, amplifier, ambient, particles, icon));
+        }
+    }
+
+    private void applyAreaPotionEffects(Player p, ConfigurationSection section, boolean ally) {
+        if (section == null) return;
+
+        double radius = section.getDouble("Radius", 8.0);
+        ConfigurationSection effects = section.getConfigurationSection("Effects");
+        if (effects == null) return;
+
+        for (org.bukkit.entity.Entity entity : p.getNearbyEntities(radius, radius, radius)) {
+            if (!(entity instanceof LivingEntity)) continue;
+            if (!(entity instanceof Player)) continue;
+
+            Player target = (Player) entity;
+            if (target.equals(p)) continue;
+
+            boolean sameTeam = isSameTeam(p, target);
+            if (ally != sameTeam) continue;
+
+            applyPotionEffects(target, effects);
+        }
+    }
+
+    private boolean isSameTeam(Player a, Player b) {
+        try {
+            net.azisaba.lgw.core.util.BattleTeam teamA =
+                    net.azisaba.lgw.core.LeonGunWar.getPlugin().getManager().getBattleTeam(a);
+            net.azisaba.lgw.core.util.BattleTeam teamB =
+                    net.azisaba.lgw.core.LeonGunWar.getPlugin().getManager().getBattleTeam(b);
+            return teamA != null && teamA.equals(teamB);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private void handleFeedbackSound(Player p, String rawSounds) {
