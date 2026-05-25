@@ -149,6 +149,7 @@ public class WeaponsSPMode implements Listener {
     @EventHandler
     public void onSwapHandItems(PlayerSwapHandItemsEvent event) {
         Player p = event.getPlayer();
+
         ItemStack mainHandItem = p.getInventory().getItemInMainHand();
         String weaponTitle = cs.getWeaponTitle(mainHandItem);
         if (weaponTitle == null) return;
@@ -156,50 +157,31 @@ public class WeaponsSPMode implements Listener {
         ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
         if (root == null) return;
 
-        boolean shouldBlockSwap = false;
+        // AUG設定がある武器は、Fキーを持ち替えではなく検知専用にする
+        event.setCancelled(true);
 
         ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
-        if (changeSection != null && changeSection.getBoolean("Enable", false)) {
-            String offAndShift = changeSection.getString("Off_And_Shift");
-            if (p.isSneaking() && offAndShift != null && !offAndShift.isEmpty()) {
-                shouldBlockSwap = true;
+
+        if (p.isSneaking()
+                && changeSection != null
+                && changeSection.getBoolean("Enable", false)) {
+            String target = changeSection.getString("Off_And_Shift");
+            if (target != null && !target.isEmpty()) {
+                handleWeaponChange(p, weaponTitle, "Off_And_Shift");
+                return;
             }
         }
 
         ConfigurationSection killStreakSection = root.getConfigurationSection("KillStreak");
-        ConfigurationSection eventSection = killStreakSection != null
-                ? killStreakSection.getConfigurationSection("Streak_Event")
-                : null;
+        if (killStreakSection == null || !killStreakSection.getBoolean("Enable", false)) return;
 
-        boolean hasOffhandAction = false;
-        if (killStreakSection != null
-                && killStreakSection.getBoolean("Enable", false)
-                && eventSection != null
-                && eventSection.getBoolean("Enable", false)) {
-            hasOffhandAction = hasTriggerAction(eventSection, "offhand");
-        }
+        ConfigurationSection eventSection = killStreakSection.getConfigurationSection("Streak_Event");
+        if (eventSection == null || !eventSection.getBoolean("Enable", false)) return;
 
-        if (hasOffhandAction) {
-            shouldBlockSwap = true;
-        }
+        if (!hasTriggerAction(eventSection, "offhand")) return;
 
-        if (!shouldBlockSwap) return;
-
-        event.setCancelled(true);
-
-        if (p.isSneaking()
-                && changeSection != null
-                && changeSection.getBoolean("Enable", false)
-                && changeSection.getString("Off_And_Shift") != null
-                && !changeSection.getString("Off_And_Shift").isEmpty()) {
-            handleWeaponChange(p, weaponTitle, "Off_And_Shift");
-            return;
-        }
-
-        if (hasOffhandAction) {
-            int currentStreak = getWeaponKillStreak(p, weaponTitle);
-            checkStreakEvents(p, weaponTitle, currentStreak, "offhand");
-        }
+        int currentStreak = getWeaponKillStreak(p, weaponTitle);
+        checkStreakEvents(p, weaponTitle, currentStreak, "offhand");
     }
     private boolean hasTriggerAction(ConfigurationSection eventSection, String targetAction) {
         for (ConfigurationSection costSec : getCostSections(eventSection)) {
