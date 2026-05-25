@@ -30,7 +30,7 @@ import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.entity.LivingEntity;
-
+import org.bukkit.event.player.PlayerJoinEvent;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -64,6 +64,9 @@ public class WeaponsSPMode implements Listener {
     // ジャンプ状態管理
     private final Map<UUID, Boolean> jumpMap = new HashMap<>();
     private final Map<UUID, Double> lastYMap = new HashMap<>();
+
+    //Athor
+    private final Map<UUID, BukkitRunnable> weaponReturnCooldownBarTaskMap = new HashMap<>();
 
     public WeaponsSPMode(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -151,42 +154,63 @@ public class WeaponsSPMode implements Listener {
         if (weaponTitle == null) return;
 
         ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
+        if (root == null) return;
 
-        // シフト＋Fキー → WhenChangeWeapon の Off_And_Shift
-        if (p.isSneaking() && root != null) {
-            ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
-            if (changeSection != null && changeSection.getBoolean("Enable", false)) {
-                String target = changeSection.getString("Off_And_Shift");
-                if (target != null && !target.isEmpty()) {
-                    event.setCancelled(true);
-                    handleWeaponChange(p, weaponTitle, "Off_And_Shift");
-                    return;
-                }
+        boolean shouldBlockSwap = false;
+
+        ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
+        if (changeSection != null && changeSection.getBoolean("Enable", false)) {
+            String offAndShift = changeSection.getString("Off_And_Shift");
+            if (p.isSneaking() && offAndShift != null && !offAndShift.isEmpty()) {
+                shouldBlockSwap = true;
             }
         }
 
-        // KillStreak の offhand処理
-        if (root == null) return;
         ConfigurationSection killStreakSection = root.getConfigurationSection("KillStreak");
-        if (killStreakSection == null || !killStreakSection.getBoolean("Enable", false)) return;
-
-        ConfigurationSection eventSection = killStreakSection.getConfigurationSection("Streak_Event");
-        if (eventSection == null || !eventSection.getBoolean("Enable", false)) return;
+        ConfigurationSection eventSection = killStreakSection != null
+                ? killStreakSection.getConfigurationSection("Streak_Event")
+                : null;
 
         boolean hasOffhandAction = false;
+        if (killStreakSection != null
+                && killStreakSection.getBoolean("Enable", false)
+                && eventSection != null
+                && eventSection.getBoolean("Enable", false)) {
+            hasOffhandAction = hasTriggerAction(eventSection, "offhand");
+        }
+
+        if (hasOffhandAction) {
+            shouldBlockSwap = true;
+        }
+
+        if (!shouldBlockSwap) return;
+
+        event.setCancelled(true);
+
+        if (p.isSneaking()
+                && changeSection != null
+                && changeSection.getBoolean("Enable", false)
+                && changeSection.getString("Off_And_Shift") != null
+                && !changeSection.getString("Off_And_Shift").isEmpty()) {
+            handleWeaponChange(p, weaponTitle, "Off_And_Shift");
+            return;
+        }
+
+        if (hasOffhandAction) {
+            int currentStreak = getWeaponKillStreak(p, weaponTitle);
+            checkStreakEvents(p, weaponTitle, currentStreak, "offhand");
+        }
+    }
+    private boolean hasTriggerAction(ConfigurationSection eventSection, String targetAction) {
         for (ConfigurationSection costSec : getCostSections(eventSection)) {
-            for (String action : costSec.getString("Trigger_Action", "").split(",")) {
-                if (action.trim().equalsIgnoreCase("offhand")) {
-                    hasOffhandAction = true;
-                    break;
+            String actions = costSec.getString("Trigger_Action", "");
+            for (String action : actions.split(",")) {
+                if (action.trim().equalsIgnoreCase(targetAction)) {
+                    return true;
                 }
             }
         }
-        if (!hasOffhandAction) return;
-
-        event.setCancelled(true);
-        int currentStreak = getWeaponKillStreak(p, weaponTitle);
-        checkStreakEvents(p, weaponTitle, currentStreak, "offhand");
+        return false;
     }
 
     // --- 武器持ち替え時のカウンター更新 ---
@@ -299,6 +323,64 @@ public class WeaponsSPMode implements Listener {
 
         BukkitRunnable timedTask = timedWeaponChangeTaskMap.remove(uuid);
         if (timedTask != null) timedTask.cancel();
+
+        BukkitRunnable returnCooldownTask = weaponReturnCooldownBarTaskMap.remove(uuid);
+        if (returnCooldownTask != null) returnCooldownTask.cancel();
+    }
+
+    @EventHandler
+    public void onJoin(PlayerJoinEvent event) {
+        Player p = event.getPlayer();
+
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!p.isOnline()) return;
+
+                PlayerInventory inv = p.getInventory();
+
+                for (int slot = 0; slot < inv.getSize(); slot++) {
+                    ItemStack item = inv.getItem(slot);
+                    String weaponTitle = cs.getWeaponTitle(item);
+                    if (weaponTitle == null) continue;
+
+                    ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
+                    if (root == null) continue;
+
+                    ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
+                    if (changeSection == null || !changeSection.getBoolean("Enable", false)) continue;
+
+                    ConfigurationSection joinSection = changeSection.getConfigurationSection("Join_Change");
+                    if (joinSection == null || !joinSection.getBoolean("Enable", false)) continue;
+
+                    String targetWeapon = joinSection.getString("Target_Weapon");
+                    if (targetWeapon == null || targetWeapon.isEmpty()) continue;
+
+                    boolean takeoverAmmo = joinSection.getBoolean("Takeover_Ammo",
+                            changeSection.getBoolean("Takeover_Ammo", false));
+
+                    replaceWeaponInSlot(p, weaponTitle, targetWeapon, slot, takeoverAmmo);
+                }
+                ItemStack offhand = inv.getItemInOffHand();
+                String offhandTitle = cs.getWeaponTitle(offhand);
+                if (offhandTitle != null) {
+                    ConfigurationSection root = WeaponConfig.getWeaponConfig(offhandTitle);
+                    if (root != null) {
+                        ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
+                        if (changeSection != null && changeSection.getBoolean("Enable", false)) {
+                            ConfigurationSection joinSection = changeSection.getConfigurationSection("Join_Change");
+                            if (joinSection != null && joinSection.getBoolean("Enable", false)) {
+                                String targetWeapon = joinSection.getString("Target_Weapon");
+                                if (targetWeapon != null && !targetWeapon.isEmpty()) {
+                                    boolean takeoverAmmo = joinSection.getBoolean("Takeover_Ammo", false);
+                                    replaceWeaponInOffHand(p, offhandTitle, targetWeapon, takeoverAmmo);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }.runTaskLater(plugin, 20L);
     }
 
     // ===== WhenChangeWeapon =====
@@ -312,6 +394,20 @@ public class WeaponsSPMode implements Listener {
 
         String targetWeapon = changeSection.getString(triggerType);
         if (targetWeapon == null || targetWeapon.isEmpty()) return;
+
+        String returnCdKey = p.getUniqueId().toString() + "_ReturnChange_" + currentWeapon + "_" + triggerType;
+        if (cooldownMap.getOrDefault(returnCdKey, 0L) > System.currentTimeMillis()) {
+            ConfigurationSection returnCdSection = changeSection.getConfigurationSection("Return_Cooldown");
+            if (returnCdSection != null) {
+                String notReady = returnCdSection.getString("NotReady_Actionbar");
+                if (notReady != null && !notReady.isEmpty()) {
+                    actionBarPauseMap.put(p.getUniqueId(), 20);
+                    p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
+                            new TextComponent(colorize(notReady)));
+                }
+            }
+            return;
+        }
 
         if (!checkItemRequirements(p, changeSection, triggerType)) return;
 
@@ -357,13 +453,17 @@ public class WeaponsSPMode implements Listener {
     }
 
     private void performWeaponChange(Player p, String currentWeapon, String targetWeapon, String triggerType) {
-        trackWeaponChange(p, currentWeapon, targetWeapon, false);
-        replaceWeapon(p, targetWeapon);
-
         ConfigurationSection root = WeaponConfig.getWeaponConfig(currentWeapon);
         if (root == null) return;
+
         ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
         if (changeSection == null) return;
+
+        boolean takeoverAmmo = changeSection.getBoolean(triggerType + "_Takeover_Ammo", false);
+
+        trackWeaponChange(p, currentWeapon, targetWeapon, false);
+        replaceWeapon(p, currentWeapon, targetWeapon, takeoverAmmo);
+        startReturnCooldown(p, currentWeapon, targetWeapon, changeSection);
 
         String sound = changeSection.getString("Sound");
         if (sound != null && !sound.isEmpty()) handleFeedbackSound(p, sound);
@@ -376,8 +476,9 @@ public class WeaponsSPMode implements Listener {
 
         String message = changeSection.getString("Message");
         if (message != null && !message.isEmpty()) {
+            actionBarPauseMap.put(p.getUniqueId(), 40);
             p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                    new TextComponent(ChatColor.translateAlternateColorCodes('&', message)));
+                    new TextComponent(colorize(message)));
         }
 
         sendTitleSubtitle(p, changeSection);
@@ -640,10 +741,11 @@ public class WeaponsSPMode implements Listener {
         String changeWeapon = eventConfig.getString("Change_Weapons");
         if (changeWeapon != null && !changeWeapon.isEmpty()) {
             UUID uuid = p.getUniqueId();
+
             if (!killStreakOriginalWeaponMap.containsKey(uuid)) {
                 killStreakOriginalWeaponMap.put(uuid, weaponTitle);
-                trackWeaponChange(p, weaponTitle, changeWeapon, true);
             }
+            trackWeaponChange(p, weaponTitle, changeWeapon, true);
 
             if (eventConfig.getBoolean("Takeover_Streak", false)) {
                 int remaining = getWeaponKillStreak(p, weaponTitle);
@@ -651,13 +753,21 @@ public class WeaponsSPMode implements Listener {
                         .put(getStreakKey(changeWeapon), remaining);
             }
 
-            final String fw = changeWeapon;
+            boolean takeoverAmmo = eventConfig.getBoolean("Takeover_Ammo", false);
+
             if ("offhand".equals(triggerAction)) {
                 new BukkitRunnable() {
-                    @Override public void run() { if (p.isOnline()) replaceWeapon(p, fw); }
+                    @Override
+                    public void run() {
+                        if (p.isOnline()) {
+                            replaceWeapon(p, weaponTitle, changeWeapon, takeoverAmmo);
+                            startReturnCooldown(p, weaponTitle, changeWeapon, eventConfig);
+                        }
+                    }
                 }.runTaskLater(plugin, 1L);
             } else {
-                replaceWeapon(p, fw);
+                replaceWeapon(p, weaponTitle, changeWeapon, takeoverAmmo);
+                startReturnCooldown(p, weaponTitle, changeWeapon, eventConfig);
             }
         }
 
@@ -670,8 +780,9 @@ public class WeaponsSPMode implements Listener {
         // アクションバー
         String actionbarMsg = eventConfig.getString("Actionbar");
         if (actionbarMsg != null && !actionbarMsg.isEmpty()) {
+            actionBarPauseMap.put(p.getUniqueId(), 40);
             p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                    new TextComponent(ChatColor.translateAlternateColorCodes('&', actionbarMsg)));
+                    new TextComponent(colorize(actionbarMsg)));
         }
 
         // チャット
@@ -715,17 +826,42 @@ public class WeaponsSPMode implements Listener {
         BukkitRunnable task = new BukkitRunnable() {
             @Override
             public void run() {
-                if (!p.isOnline()) { this.cancel(); return; }
+                if (!p.isOnline()) {
+                    this.cancel();
+                    timedWeaponChangeTaskMap.remove(uuid);
+                    return;
+                }
+
+                PlayerInventory inv = p.getInventory();
+                int targetSlot = findWeaponSlot(inv, weaponTitle);
+                boolean takeoverAmmo = timedSection.getBoolean("Takeover_Ammo", false);
+
+                if (targetSlot < 0
+                        && !isWeaponInOffHand(p, weaponTitle)
+                        && !isWeaponOnCursor(p, weaponTitle)) {
+                    this.cancel();
+                    timedWeaponChangeTaskMap.remove(uuid);
+                    return;
+                }
+
                 trackWeaponChange(p, weaponTitle, targetWeapon, false);
-                replaceWeapon(p, targetWeapon);
+
+                if (targetSlot >= 0) {
+                    replaceWeaponInSlot(p, weaponTitle, targetWeapon, targetSlot, takeoverAmmo);
+                } else if (isWeaponInOffHand(p, weaponTitle)) {
+                    replaceWeaponInOffHand(p, weaponTitle, targetWeapon, takeoverAmmo);
+                } else {
+                    replaceWeaponOnCursor(p, weaponTitle, targetWeapon, takeoverAmmo);
+                }
 
                 String sound = timedSection.getString("Sound");
                 if (sound != null && !sound.isEmpty()) handleFeedbackSound(p, sound);
 
                 String message = timedSection.getString("Message");
                 if (message != null && !message.isEmpty()) {
+                    actionBarPauseMap.put(p.getUniqueId(), 40);
                     p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                            new TextComponent(ChatColor.translateAlternateColorCodes('&', message)));
+                            new TextComponent(colorize(message)));
                 }
 
                 this.cancel();
@@ -747,39 +883,160 @@ public class WeaponsSPMode implements Listener {
     private void startTimedDelayBar(Player p, ConfigurationSection sec, int ticks) {
         new BukkitRunnable() {
             int i = 0;
+
             public void run() {
-                if (!p.isOnline()) { this.cancel(); return; }
+                if (!p.isOnline()) {
+                    this.cancel();
+                    return;
+                }
+
+                UUID uuid = p.getUniqueId();
+                actionBarPauseMap.put(uuid, 4);
 
                 if (i >= ticks) {
                     String endMsg = sec.getString("End_Action_Bar");
                     if (endMsg != null && !endMsg.isEmpty()) {
+                        actionBarPauseMap.put(uuid, 30);
                         p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                                new TextComponent(ChatColor.translateAlternateColorCodes('&', endMsg)));
+                                new TextComponent(colorize(endMsg)));
                     }
+
                     String endSound = sec.getString("End_Sound");
-                    if (endSound != null && !endSound.isEmpty()) handleFeedbackSound(p, endSound);
+                    if (endSound != null && !endSound.isEmpty()) {
+                        handleFeedbackSound(p, endSound);
+                    }
+
                     this.cancel();
                     return;
                 }
 
                 String actionStr = sec.getString("Action_Bar");
-                if (actionStr != null) {
+                if (actionStr != null && !actionStr.isEmpty()) {
                     String bar = buildBar((double) i / ticks, sec);
                     p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                            new TextComponent(ChatColor.translateAlternateColorCodes('&', actionStr.replace("{bar}", bar))));
+                            new TextComponent(colorize(actionStr.replace("{bar}", bar))));
                 }
+
                 i += 2;
             }
         }.runTaskTimer(plugin, 0L, 2L);
+    }
+    private void startReturnCooldown(Player p, String fromWeapon, String toWeapon, ConfigurationSection sourceSection) {
+        ConfigurationSection sec = sourceSection.getConfigurationSection("Return_Cooldown");
+        if (sec == null || !sec.getBoolean("Enable", false)) return;
+
+        int ticks = sec.getInt("Ticks", 0);
+        if (ticks <= 0) return;
+
+        UUID uuid = p.getUniqueId();
+
+        ConfigurationSection toRoot = WeaponConfig.getWeaponConfig(toWeapon);
+        if (toRoot == null) return;
+
+        ConfigurationSection toChangeSection = toRoot.getConfigurationSection("WhenChangeWeapon");
+        if (toChangeSection == null || !toChangeSection.getBoolean("Enable", false)) return;
+
+        for (String key : toChangeSection.getKeys(false)) {
+            if (key.equalsIgnoreCase("Enable")
+                    || key.equalsIgnoreCase("Sound")
+                    || key.equalsIgnoreCase("Message")
+                    || key.equalsIgnoreCase("CoolDown")
+                    || key.equalsIgnoreCase("Timed_Change")
+                    || key.equalsIgnoreCase("Join_Change")
+                    || key.endsWith("_Takeover_Ammo")
+                    || key.equalsIgnoreCase("Return_Cooldown")) {
+                continue;
+            }
+
+            String target = toChangeSection.getString(key);
+            if (!fromWeapon.equals(target)) continue;
+
+            String cdKey = uuid + "_ReturnChange_" + toWeapon + "_" + key;
+            cooldownMap.put(cdKey, System.currentTimeMillis() + (ticks * 50L));
+        }
+
+        startReturnCooldownBar(p, sec, ticks, toWeapon);
+    }
+    private void startReturnCooldownBar(Player p, ConfigurationSection sec, int ticks, String weaponTitle) {
+        UUID uuid = p.getUniqueId();
+
+        BukkitRunnable oldTask = weaponReturnCooldownBarTaskMap.remove(uuid);
+        if (oldTask != null) oldTask.cancel();
+
+        BukkitRunnable task = new BukkitRunnable() {
+            int elapsed = 0;
+
+            @Override
+            public void run() {
+                if (!p.isOnline()) {
+                    cancel();
+                    weaponReturnCooldownBarTaskMap.remove(uuid);
+                    return;
+                }
+
+                ItemStack current = p.getInventory().getItemInMainHand();
+                String currentTitle = cs.getWeaponTitle(current);
+                if (!weaponTitle.equals(currentTitle)) {
+                    elapsed += 2;
+                    if (elapsed >= ticks) {
+                        cancel();
+                        weaponReturnCooldownBarTaskMap.remove(uuid);
+                    }
+                    return;
+                }
+
+                actionBarPauseMap.put(uuid, 4);
+
+                String action = sec.getString("Action_Bar");
+                if (action != null && !action.isEmpty()) {
+                    String bar = buildReturnCooldownBar((double) elapsed / ticks, sec);
+                    p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
+                            new TextComponent(colorize(action.replace("{bar}", bar))));
+                }
+
+                elapsed += 2;
+                if (elapsed >= ticks) {
+                    String end = sec.getString("End_Action_Bar");
+                    if (end != null && !end.isEmpty()) {
+                        actionBarPauseMap.put(uuid, 30);
+                        p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
+                                new TextComponent(colorize(end)));
+                    }
+
+                    String endSound = sec.getString("End_Sound");
+                    if (endSound != null && !endSound.isEmpty()) {
+                        handleFeedbackSound(p, endSound);
+                    }
+
+                    cancel();
+                    weaponReturnCooldownBarTaskMap.remove(uuid);
+                }
+            }
+        };
+
+        task.runTaskTimer(plugin, 0L, 2L);
+        weaponReturnCooldownBarTaskMap.put(uuid, task);
+    }
+    private String buildReturnCooldownBar(double pct, ConfigurationSection sec) {
+        int len = sec.getInt("Symbol_Amount", 15);
+        int left = (int) (pct * len);
+
+        String sym = sec.getString("Symbol", "|");
+        String leftColor = sec.getString("Left_Color", "&a");
+        String rightColor = sec.getString("Right_Color", "&7");
+
+        return colorize(leftColor + repeat(sym, left) + rightColor + repeat(sym, len - left));
     }
 
     private String buildBar(double pct, ConfigurationSection sec) {
         int len = sec.getInt("Symbol_Amount", 15);
         int left = (int) (pct * len);
         String sym = sec.getString("Symbol", "|");
-        String leftColor = ChatColor.translateAlternateColorCodes('&', sec.getString("Left_Color", "&a"));
-        String rightColor = ChatColor.translateAlternateColorCodes('&', sec.getString("Right_Color", "&c"));
-        return leftColor + repeat(sym, left) + rightColor + repeat(sym, len - left);
+
+        return colorize(sec.getString("Left_Color", "&a"))
+                + repeat(sym, left)
+                + colorize(sec.getString("Right_Color", "&c"))
+                + repeat(sym, len - left);
     }
 
     // ===== ユーティリティ =====
@@ -825,14 +1082,15 @@ public class WeaponsSPMode implements Listener {
                 if (slot < 0) return;
 
                 inv.setItem(slot, null);
-                cs.giveWeapon(p, originalWeapon, 1);
+                String restoreWeapon = getReturnBaseWeapon(changedWeapon, originalWeapon);
+                cs.giveWeapon(p, restoreWeapon, 1);
 
                 new BukkitRunnable() {
                     @Override
                     public void run() {
                         if (!p.isOnline()) return;
 
-                        int generatedSlot = findWeaponSlot(inv, originalWeapon);
+                        int generatedSlot = findWeaponSlot(inv, restoreWeapon);
                         if (generatedSlot < 0) return;
 
                         ItemStack generated = inv.getItem(generatedSlot);
@@ -847,11 +1105,20 @@ public class WeaponsSPMode implements Listener {
                             inv.setItem(slot, generated);
                             inv.setItem(generatedSlot, null);
                         }
-                        inv.setHeldItemSlot(slot);
                     }
                 }.runTaskLater(plugin, 1L);
             }
         }.runTaskLater(plugin, 1L);
+    }
+
+    private String getReturnBaseWeapon(String currentWeapon, String fallbackWeapon) {
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(currentWeapon);
+        if (root == null) return fallbackWeapon;
+
+        String baseWeapon = root.getString("Return_Base_Weapon");
+        if (baseWeapon == null || baseWeapon.isEmpty()) return fallbackWeapon;
+
+        return baseWeapon;
     }
 
     private int findWeaponSlot(PlayerInventory inv, String weaponName) {
@@ -864,20 +1131,240 @@ public class WeaponsSPMode implements Listener {
         return -1;
     }
 
+    private int getWeaponAmmoInSlot(Player p, String weaponName, int slot) {
+        ItemStack item = p.getInventory().getItem(slot);
+        if (item == null || !weaponName.equals(cs.getWeaponTitle(item))) return -1;
+
+        try {
+            return API.getCSDirector().getAmmoBetweenBrackets(p, weaponName, item);
+        } catch (Exception ignored) {
+            return -1;
+        }
+    }
+
+    private void applyWeaponAmmoToSlot(Player p, String weaponName, int slot, int ammo) {
+        if (ammo < 0) return;
+
+        ItemStack item = p.getInventory().getItem(slot);
+        if (item == null || !weaponName.equals(cs.getWeaponTitle(item))) return;
+
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponName);
+        int maxAmmo = root != null ? root.getInt("Reload.Reload_Amount", root.getInt("Shoot.Capacity", -1)) : -1;
+
+        if (maxAmmo > 0) ammo = Math.min(ammo, maxAmmo);
+        ammo = Math.max(0, ammo);
+
+        try {
+            API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(ammo), weaponName);
+        } catch (Exception ignored) {}
+    }
+
+    private void replaceWeaponInSlot(Player p, String expectedWeapon, String targetWeapon, int targetSlot) {
+        replaceWeaponInSlot(p, expectedWeapon, targetWeapon, targetSlot, false);
+    }
+
+    private void replaceWeaponInSlot(Player p, String expectedWeapon, String targetWeapon, int targetSlot, boolean takeoverAmmo) {
+        if (!p.isOnline()) return;
+
+        PlayerInventory inv = p.getInventory();
+        ItemStack current = inv.getItem(targetSlot);
+        String currentTitle = cs.getWeaponTitle(current);
+
+        if (!expectedWeapon.equals(currentTitle)) return;
+
+        int ammo = takeoverAmmo ? getWeaponAmmoInSlot(p, expectedWeapon, targetSlot) : -1;
+
+        giveWeaponIntoSlot(p, targetWeapon, targetSlot, false, ammo);
+
+        if (inv.getHeldItemSlot() == targetSlot) {
+            startStreakCounter(p, targetWeapon);
+            startTimedWeaponChange(p, targetWeapon);
+        }
+    }
+
+    private boolean isWeaponOnCursor(Player p, String weaponName) {
+        ItemStack cursor = p.getItemOnCursor();
+        return cursor != null
+                && cursor.getType() != Material.AIR
+                && weaponName.equals(cs.getWeaponTitle(cursor));
+    }
+    private boolean isWeaponInOffHand(Player p, String weaponName) {
+        ItemStack item = p.getInventory().getItemInOffHand();
+        return item != null
+                && item.getType() != Material.AIR
+                && weaponName.equals(cs.getWeaponTitle(item));
+    }
+    private void replaceWeaponInOffHand(Player p, String expectedWeapon, String targetWeapon, boolean takeoverAmmo) {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!p.isOnline()) return;
+
+                ItemStack current = p.getInventory().getItemInOffHand();
+                String currentTitle = cs.getWeaponTitle(current);
+
+                if (!expectedWeapon.equals(currentTitle)) return;
+
+                int ammo = takeoverAmmo ? getWeaponAmmoFromItem(p, expectedWeapon, current) : -1;
+                ItemStack beforeOffhand = current.clone();
+
+                p.getInventory().setItemInOffHand(null);
+                cs.giveWeapon(p, targetWeapon, 1);
+
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        if (!p.isOnline()) return;
+
+                        PlayerInventory inv = p.getInventory();
+                        int generatedSlot = findWeaponSlot(inv, targetWeapon);
+
+                        if (generatedSlot < 0) {
+                            ItemStack offhandNow = inv.getItemInOffHand();
+                            if (offhandNow == null || offhandNow.getType() == Material.AIR) {
+                                inv.setItemInOffHand(beforeOffhand);
+                            }
+                            return;
+                        }
+
+                        ItemStack generated = inv.getItem(generatedSlot);
+                        inv.setItem(generatedSlot, null);
+
+                        inv.setItemInOffHand(generated);
+                        applyWeaponAmmoToOffHand(p, targetWeapon, ammo);
+                    }
+                }.runTaskLater(plugin, 1L);
+            }
+        }.runTaskLater(plugin, 1L);
+    }
+    private void applyWeaponAmmoToOffHand(Player p, String weaponName, int ammo) {
+        if (ammo < 0) return;
+
+        ItemStack item = p.getInventory().getItemInOffHand();
+        if (item == null || !weaponName.equals(cs.getWeaponTitle(item))) return;
+
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponName);
+        int maxAmmo = root != null ? root.getInt("Reload.Reload_Amount", root.getInt("Shoot.Capacity", -1)) : -1;
+
+        if (maxAmmo > 0) ammo = Math.min(ammo, maxAmmo);
+        ammo = Math.max(0, ammo);
+
+        try {
+            API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(ammo), weaponName);
+            p.getInventory().setItemInOffHand(item);
+        } catch (Exception ignored) {}
+    }
+
+    private void replaceWeaponOnCursor(Player p, String expectedWeapon, String targetWeapon, boolean takeoverAmmo) {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!p.isOnline()) return;
+
+                ItemStack cursor = p.getItemOnCursor();
+                if (cursor == null || cursor.getType() == Material.AIR) return;
+
+                String cursorTitle = cs.getWeaponTitle(cursor);
+                if (!expectedWeapon.equals(cursorTitle)) return;
+
+                int ammo = takeoverAmmo ? getWeaponAmmoFromItem(p, expectedWeapon, cursor) : -1;
+                ItemStack beforeCursor = cursor.clone();
+
+                p.setItemOnCursor(null);
+                cs.giveWeapon(p, targetWeapon, 1);
+
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        if (!p.isOnline()) return;
+
+                        PlayerInventory inv = p.getInventory();
+                        int generatedSlot = findWeaponSlot(inv, targetWeapon);
+
+                        if (generatedSlot < 0) {
+                            ItemStack currentCursor = p.getItemOnCursor();
+                            if (currentCursor == null || currentCursor.getType() == Material.AIR) {
+                                p.setItemOnCursor(beforeCursor);
+                            }
+                            return;
+                        }
+
+                        ItemStack generated = inv.getItem(generatedSlot);
+                        inv.setItem(generatedSlot, null);
+
+                        p.setItemOnCursor(generated);
+                        applyWeaponAmmoToCursor(p, targetWeapon, ammo);
+                    }
+                }.runTaskLater(plugin, 1L);
+            }
+        }.runTaskLater(plugin, 1L);
+    }
+
+    private int getWeaponAmmoFromItem(Player p, String weaponName, ItemStack item) {
+        if (item == null || !weaponName.equals(cs.getWeaponTitle(item))) return -1;
+
+        try {
+            return API.getCSDirector().getAmmoBetweenBrackets(p, weaponName, item);
+        } catch (Exception ignored) {
+            return -1;
+        }
+    }
+
+    private void applyWeaponAmmoToCursor(Player p, String weaponName, int ammo) {
+        if (ammo < 0) return;
+
+        ItemStack item = p.getItemOnCursor();
+        if (item == null || !weaponName.equals(cs.getWeaponTitle(item))) return;
+
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponName);
+        int maxAmmo = root != null ? root.getInt("Reload.Reload_Amount", root.getInt("Shoot.Capacity", -1)) : -1;
+
+        if (maxAmmo > 0) ammo = Math.min(ammo, maxAmmo);
+        ammo = Math.max(0, ammo);
+
+        try {
+            API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(ammo), weaponName);
+            p.setItemOnCursor(item);
+        } catch (Exception ignored) {}
+    }
+
     private void replaceWeapon(Player p, String weaponName) {
+        replaceWeapon(p, null, weaponName, false);
+    }
+
+    private void replaceWeapon(Player p, String expectedWeapon, String targetWeapon) {
+        replaceWeapon(p, expectedWeapon, targetWeapon, false);
+    }
+
+    private void replaceWeapon(Player p, String expectedWeapon, String targetWeapon, boolean takeoverAmmo) {
+        int replaceSlot = p.getInventory().getHeldItemSlot();
+
         new BukkitRunnable() {
             @Override
             public void run() {
                 if (!p.isOnline()) return;
 
                 PlayerInventory inv = p.getInventory();
-                int replaceSlot = inv.getHeldItemSlot();
+
+                if (inv.getHeldItemSlot() != replaceSlot) return;
+
+                int ammo = -1;
+
+                if (expectedWeapon != null) {
+                    ItemStack current = inv.getItem(replaceSlot);
+                    String currentTitle = cs.getWeaponTitle(current);
+                    if (!expectedWeapon.equals(currentTitle)) return;
+
+                    if (takeoverAmmo) {
+                        ammo = getWeaponAmmoInSlot(p, expectedWeapon, replaceSlot);
+                    }
+                }
 
                 inv.setItem(replaceSlot, null);
-                giveWeaponIntoSlot(p, weaponName, replaceSlot);
+                giveWeaponIntoSlot(p, targetWeapon, replaceSlot, true, ammo);
 
-                startStreakCounter(p, weaponName);
-                startTimedWeaponChange(p, weaponName);
+                startStreakCounter(p, targetWeapon);
+                startTimedWeaponChange(p, targetWeapon);
             }
         }.runTaskLater(plugin, 1L);
     }
@@ -891,6 +1378,14 @@ public class WeaponsSPMode implements Listener {
     }
 
     private void giveWeaponIntoSlot(Player p, String weaponName, int targetSlot) {
+        giveWeaponIntoSlot(p, weaponName, targetSlot, true, -1);
+    }
+
+    private void giveWeaponIntoSlot(Player p, String weaponName, int targetSlot, boolean selectTargetSlot) {
+        giveWeaponIntoSlot(p, weaponName, targetSlot, selectTargetSlot, -1);
+    }
+
+    private void giveWeaponIntoSlot(Player p, String weaponName, int targetSlot, boolean selectTargetSlot, int takeoverAmmo) {
         if (!p.isOnline()) return;
 
         PlayerInventory inv = p.getInventory();
@@ -920,7 +1415,11 @@ public class WeaponsSPMode implements Listener {
                 }
 
                 inv.setItem(targetSlot, generated);
-                inv.setHeldItemSlot(targetSlot);
+                applyWeaponAmmoToSlot(p, weaponName, targetSlot, takeoverAmmo);
+
+                if (selectTargetSlot) {
+                    inv.setHeldItemSlot(targetSlot);
+                }
             }
         }.runTaskLater(plugin, 1L);
     }

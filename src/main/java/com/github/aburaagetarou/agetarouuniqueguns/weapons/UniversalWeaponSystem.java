@@ -25,6 +25,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 import com.shampaggon.crackshot.events.WeaponPreShootEvent;
@@ -403,6 +404,38 @@ public class UniversalWeaponSystem implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onDamagedEffect(EntityDamageByEntityEvent event) {
+        if (!(event.getEntity() instanceof Player)) return;
+
+        Player victim = (Player) event.getEntity();
+        Player attacker = getAttackingPlayer(event.getDamager());
+        if (attacker == null || attacker.equals(victim)) return;
+
+        ItemStack item = victim.getInventory().getItemInMainHand();
+        String title = cs.getWeaponTitle(item);
+        if (title == null) return;
+
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
+        if (root == null) return;
+
+        ConfigurationSection sec = root.getConfigurationSection("On_Damaged_Effect");
+        if (sec == null || !sec.getBoolean("Enable", false)) return;
+
+        if (!checkConditions(victim, "On_Damaged_Effect", sec)) return;
+        if (ThreadLocalRandom.current().nextDouble() >= sec.getDouble("Chance", 1.0)) return;
+
+        boolean applied = false;
+
+        applied |= applyPotionEffects(victim, sec.getConfigurationSection("Self_Potion_Effects"));
+        applied |= applyPotionEffects(attacker, sec.getConfigurationSection("Attacker_Potion_Effects"));
+
+        if (!applied) return;
+
+        applyCooldown(victim, "On_Damaged_Effect", sec, title);
+        handleFeedback(victim, sec);
+    }
+
     private void executeGenericFeature(Player p, String title, String feat, FeatureAction action) {
         ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
         if (root == null) return;
@@ -436,6 +469,46 @@ public class UniversalWeaponSystem implements Listener {
             if (!hasRequiredEffect) return false;
         }
         return true;
+    }
+
+    private Player getAttackingPlayer(org.bukkit.entity.Entity damager) {
+        if (damager instanceof Player) {
+            return (Player) damager;
+        }
+
+        if (damager instanceof Projectile) {
+            Projectile projectile = (Projectile) damager;
+            if (projectile.getShooter() instanceof Player) {
+                return (Player) projectile.getShooter();
+            }
+        }
+
+        return null;
+    }
+
+    private boolean applyPotionEffects(Player target, ConfigurationSection effectsSection) {
+        if (target == null || effectsSection == null) return false;
+
+        boolean applied = false;
+
+        for (String effectName : effectsSection.getKeys(false)) {
+            PotionEffectType type = PotionEffectType.getByName(effectName.toUpperCase());
+            if (type == null) continue;
+
+            ConfigurationSection effectSec = effectsSection.getConfigurationSection(effectName);
+            if (effectSec == null) continue;
+
+            int duration = effectSec.getInt("Duration", 100);
+            int amplifier = effectSec.getInt("Amplifier", 0);
+            boolean ambient = effectSec.getBoolean("Ambient", false);
+            boolean particles = effectSec.getBoolean("Particles", true);
+            boolean icon = effectSec.getBoolean("Icon", true);
+
+            target.addPotionEffect(new PotionEffect(type, duration, amplifier, ambient, particles, icon), true);
+            applied = true;
+        }
+
+        return applied;
     }
 
     private void startDelayBar(Player p, ConfigurationSection sec, int ticks, String weaponTitle) {
