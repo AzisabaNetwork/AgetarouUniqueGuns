@@ -19,11 +19,13 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerToggleSneakEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 import com.shampaggon.crackshot.events.WeaponPreShootEvent;
@@ -32,6 +34,7 @@ import org.bukkit.event.player.PlayerItemHeldEvent;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class UniversalWeaponSystem implements Listener {
@@ -40,7 +43,9 @@ public class UniversalWeaponSystem implements Listener {
     private final CSUtility cs = new CSUtility();
     private static boolean isExplosionLock = false;
     private final Map<String, Long> cooldownMap = new HashMap<>();
-    private final Map<java.util.UUID, Long> switchLockMap = new HashMap<>();
+    private final Map<UUID, Long> switchLockMap = new HashMap<>();
+    // ★ 不足していた変数：元のモデルデータを一時保存するマップ
+    private final Map<UUID, Integer> originalModelMap = new HashMap<>();
 
     public UniversalWeaponSystem(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -85,19 +90,6 @@ public class UniversalWeaponSystem implements Listener {
         }
     }
 
-    private int getMagSize(String title) {
-        ConfigurationSection config = WeaponConfig.getWeaponConfig(title);
-        if (config == null) return 0;
-
-        if (config.contains("Shoot.Capacity")) {
-            return config.getInt("Shoot.Capacity");
-        }
-        if (config.contains("Reload.Reload_Amount")) {
-            return config.getInt("Reload.Reload_Amount");
-        }
-        return 0;
-    }
-
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onReload(WeaponReloadEvent event) {
         Player p = event.getPlayer();
@@ -118,6 +110,17 @@ public class UniversalWeaponSystem implements Listener {
                 fillAmmo(p, title, magSize);
             }
         }
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (p.isOnline()) {
+                    ItemStack item = p.getInventory().getItemInMainHand();
+                    if (title.equals(cs.getWeaponTitle(item))) {
+                        applyHeldModel(p, item, title);
+                    }
+                }
+            }
+        }.runTaskLater(plugin, 1L);
     }
 
     // --- 2. 爆発制御 (二重防止 & CS設定の完全適用) ---
@@ -192,10 +195,12 @@ public class UniversalWeaponSystem implements Listener {
         if (sec.contains("Custom_Model_Data_CD")) {
             ItemStack item = p.getInventory().getItemInMainHand();
             ItemMeta meta = item.getItemMeta();
-            if (meta != null && meta.hasCustomModelData()) {
-                int originalModel = meta.getCustomModelData();
+            if (meta != null) {
                 int cdModel = sec.getInt("Custom_Model_Data_CD");
                 String weaponTitle = cs.getWeaponTitle(item);
+
+                // 現在のモデル（Heldモデルなど）を一時保存
+                int previousModel = meta.hasCustomModelData() ? meta.getCustomModelData() : 0;
 
                 meta.setCustomModelData(cdModel);
                 item.setItemMeta(meta);
@@ -205,9 +210,10 @@ public class UniversalWeaponSystem implements Listener {
                     public void run() {
                         if (p.isOnline()) {
                             ItemStack current = p.getInventory().getItemInMainHand();
+                            // まだ同じ武器を持っていたら、前のモデル（Heldモデル）に戻す
                             if (weaponTitle != null && weaponTitle.equals(cs.getWeaponTitle(current))) {
                                 ItemMeta m = current.getItemMeta();
-                                m.setCustomModelData(originalModel);
+                                m.setCustomModelData(previousModel);
                                 current.setItemMeta(m);
                             }
                         }
@@ -221,20 +227,85 @@ public class UniversalWeaponSystem implements Listener {
         }
     }
 
-    // --- 5. 持ち替えロック機能 ---
+    // --- 5. 持ち替えイベント ---
     @EventHandler
     public void onItemHeld(PlayerItemHeldEvent event) {
         Player p = event.getPlayer();
+
+        // 元のモデルに戻す
+        restoreModel(p, p.getInventory().getItem(event.getPreviousSlot()));
+
         ItemStack item = p.getInventory().getItem(event.getNewSlot());
         String title = cs.getWeaponTitle(item);
+
+        if (title != null) {
+            applyHeldModel(p, item, title); // 持っている間のモデル適用
+            applySwitchLock(p, title);      // 持ち替えロック適用
+        }
+    }
+
+    @EventHandler
+    public void onWeaponHeld(WeaponHeldEvent event) {
+        Player p = event.getPlayer();
+        if (p == null) return;
+
+        ItemStack item = p.getInventory().getItemInMainHand();
+        String title = event.getWeaponTitle();
+
+        applyHeldModel(p, item, title);
         applySwitchLock(p, title);
     }
 
     @EventHandler
-    public void onWeaponHeld(me.DeeCaaD.CrackShotPlus.Events.WeaponHeldEvent event) {
-        Player p = event.getPlayer();
-        if (p == null) return;
-        applySwitchLock(p, event.getWeaponTitle());
+    public void onQuit(PlayerQuitEvent event) {
+        originalModelMap.remove(event.getPlayer().getUniqueId());
+        switchLockMap.remove(event.getPlayer().getUniqueId());
+    }
+
+    // --- 6. 持っている間だけモデル変更の内部処理 ---
+    private void applyHeldModel(Player p, ItemStack item, String title) {
+        if (item == null || !item.hasItemMeta() || title == null) return;
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
+        if (root == null) return;
+
+        int heldModel = root.getInt("Custom_Model_Data_Held", -1);
+        if (heldModel == -1) return;
+
+        ItemMeta meta = item.getItemMeta();
+        // 現在のモデルを保存（まだ保存されていない場合のみ）
+        if (meta.hasCustomModelData() && !originalModelMap.containsKey(p.getUniqueId())) {
+            originalModelMap.put(p.getUniqueId(), meta.getCustomModelData());
+        }
+
+        meta.setCustomModelData(heldModel);
+        item.setItemMeta(meta);
+    }
+
+    private void restoreModel(Player p, ItemStack item) {
+        if (item == null || !item.hasItemMeta() || !originalModelMap.containsKey(p.getUniqueId())) return;
+
+        int originalId = originalModelMap.remove(p.getUniqueId());
+        ItemMeta meta = item.getItemMeta();
+        meta.setCustomModelData(originalId);
+        item.setItemMeta(meta);
+    }
+
+    @EventHandler
+    public void onDrop(org.bukkit.event.player.PlayerDropItemEvent event) {
+        // 落としたアイテムのモデルを復元
+        restoreModel(event.getPlayer(), event.getItemDrop().getItemStack());
+    }
+
+    @EventHandler
+    public void onInventoryClick(org.bukkit.event.inventory.InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player)) return;
+        Player p = (Player) event.getWhoClicked();
+
+        ItemStack item = event.getCurrentItem();
+
+        if (item != null && cs.getWeaponTitle(item) != null) {
+            restoreModel(p, item);
+        }
     }
 
     private void applySwitchLock(Player p, String title) {
@@ -263,14 +334,26 @@ public class UniversalWeaponSystem implements Listener {
         }
     }
 
-    // --- その他ユーティリティ (射撃・ダメージ) ---
+    // --- その他ユーティリティ ---
     @EventHandler(priority = EventPriority.LOWEST)
-    public void onPreShoot(com.shampaggon.crackshot.events.WeaponPreShootEvent event) {
+    public void onPreShoot(WeaponPreShootEvent event) {
         Player p = event.getPlayer();
         Long unlockTime = switchLockMap.get(p.getUniqueId());
 
         if (unlockTime != null && unlockTime > System.currentTimeMillis()) {
             event.setCancelled(true);
+
+            ItemStack item = p.getInventory().getItemInMainHand();
+            String title = cs.getWeaponTitle(item);
+            if (title != null) {
+                ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
+                if (root != null) {
+                    String shootBlockMsg = root.getString("Switch_Lock.Shoot_Block_Message");
+                    if (shootBlockMsg != null && !shootBlockMsg.isEmpty()) {
+                        p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(shootBlockMsg)));
+                    }
+                }
+            }
         }
     }
 
@@ -281,7 +364,6 @@ public class UniversalWeaponSystem implements Listener {
 
         executeGenericFeature(event.getPlayer(), title, "Sneak_Explosive_Shot", () -> {
             Player p = event.getPlayer();
-
             ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
             if (root == null) return false;
             ConfigurationSection sec = root.getConfigurationSection("Sneak_Explosive_Shot");
@@ -299,7 +381,6 @@ public class UniversalWeaponSystem implements Listener {
             return false;
         });
     }
-
 
     @EventHandler
     public void onWeaponDamage(WeaponDamageEntityEvent event) {
@@ -323,6 +404,38 @@ public class UniversalWeaponSystem implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onDamagedEffect(EntityDamageByEntityEvent event) {
+        if (!(event.getEntity() instanceof Player)) return;
+
+        Player victim = (Player) event.getEntity();
+        Player attacker = getAttackingPlayer(event.getDamager());
+        if (attacker == null || attacker.equals(victim)) return;
+
+        ItemStack item = victim.getInventory().getItemInMainHand();
+        String title = cs.getWeaponTitle(item);
+        if (title == null) return;
+
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
+        if (root == null) return;
+
+        ConfigurationSection sec = root.getConfigurationSection("On_Damaged_Effect");
+        if (sec == null || !sec.getBoolean("Enable", false)) return;
+
+        if (!checkConditions(victim, "On_Damaged_Effect", sec)) return;
+        if (ThreadLocalRandom.current().nextDouble() >= sec.getDouble("Chance", 1.0)) return;
+
+        boolean applied = false;
+
+        applied |= applyPotionEffects(victim, sec.getConfigurationSection("Self_Potion_Effects"));
+        applied |= applyPotionEffects(attacker, sec.getConfigurationSection("Attacker_Potion_Effects"));
+
+        if (!applied) return;
+
+        applyCooldown(victim, "On_Damaged_Effect", sec, title);
+        handleFeedback(victim, sec);
+    }
+
     private void executeGenericFeature(Player p, String title, String feat, FeatureAction action) {
         ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
         if (root == null) return;
@@ -344,24 +457,65 @@ public class UniversalWeaponSystem implements Listener {
         if (sec.getBoolean("Require_Sneak", false) && !p.isSneaking()) return false;
         String effStr = sec.getString("Required_Effect");
         if (effStr != null && !effStr.isEmpty()) {
+            boolean hasRequiredEffect = false;
             for (String eName : effStr.split(",")) {
                 PotionEffectType t = PotionEffectType.getByName(eName.trim().toUpperCase());
                 if (t != null && !p.hasPotionEffect(t)) return false;
+                if (t != null && p.hasPotionEffect(t)) {
+                    hasRequiredEffect = true;
+                    break;
+                }
             }
+            if (!hasRequiredEffect) return false;
         }
         return true;
+    }
+
+    private Player getAttackingPlayer(org.bukkit.entity.Entity damager) {
+        if (damager instanceof Player) {
+            return (Player) damager;
+        }
+
+        if (damager instanceof Projectile) {
+            Projectile projectile = (Projectile) damager;
+            if (projectile.getShooter() instanceof Player) {
+                return (Player) projectile.getShooter();
+            }
+        }
+
+        return null;
+    }
+
+    private boolean applyPotionEffects(Player target, ConfigurationSection effectsSection) {
+        if (target == null || effectsSection == null) return false;
+
+        boolean applied = false;
+
+        for (String effectName : effectsSection.getKeys(false)) {
+            PotionEffectType type = PotionEffectType.getByName(effectName.toUpperCase());
+            if (type == null) continue;
+
+            ConfigurationSection effectSec = effectsSection.getConfigurationSection(effectName);
+            if (effectSec == null) continue;
+
+            int duration = effectSec.getInt("Duration", 100);
+            int amplifier = effectSec.getInt("Amplifier", 0);
+            boolean ambient = effectSec.getBoolean("Ambient", false);
+            boolean particles = effectSec.getBoolean("Particles", true);
+            boolean icon = effectSec.getBoolean("Icon", true);
+
+            target.addPotionEffect(new PotionEffect(type, duration, amplifier, ambient, particles, icon), true);
+            applied = true;
+        }
+
+        return applied;
     }
 
     private void startDelayBar(Player p, ConfigurationSection sec, int ticks, String weaponTitle) {
         new BukkitRunnable() {
             int i = 0;
             public void run() {
-                if (!p.isOnline()) {
-                    this.cancel();
-                    return;
-                }
-
-                // クールタイム終了の判定
+                if (!p.isOnline()) { this.cancel(); return; }
                 if (i >= ticks) {
                     String endMsg = sec.getString("End_Action_Bar");
                     if (endMsg != null && !endMsg.isEmpty()) {
@@ -369,22 +523,13 @@ public class UniversalWeaponSystem implements Listener {
                     }
                     String endSound = sec.getString("End_Sound");
                     if (endSound != null && !endSound.isEmpty()) {
-                        String[] parts = endSound.split("-");
-                        try {
-                            Sound s = Sound.valueOf(parts[0].toUpperCase());
-                            float vol = parts.length > 1 ? Float.parseFloat(parts[1]) : 1.0f;
-                            float pit = parts.length > 2 ? Float.parseFloat(parts[2]) : 1.0f;
-                            p.playSound(p.getLocation(), s, vol, pit);
-                        } catch (Exception e) {}
+                        handleFeedbackSound(p, endSound);
                     }
                     this.cancel();
                     return;
                 }
-
                 ItemStack currentItem = p.getInventory().getItemInMainHand();
                 String currentTitle = cs.getWeaponTitle(currentItem);
-
-                // 違う武器を持っている場合はバーを描画しないが、時間は進める
                 if (currentTitle != null && currentTitle.equals(weaponTitle)) {
                     String actionStr = sec.getString("Action_Bar");
                     if (actionStr != null) {
@@ -392,7 +537,6 @@ public class UniversalWeaponSystem implements Listener {
                         p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(actionStr.replace("{bar}", bar))));
                     }
                 }
-
                 i += 2;
             }
         }.runTaskTimer(plugin, 0L, 2L);
@@ -425,43 +569,57 @@ public class UniversalWeaponSystem implements Listener {
         if (msg != null && !msg.isEmpty()) {
             p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(msg)));
         }
+        String rawSounds = s.getString("Sounds", s.getString("Sound"));
+        if (rawSounds != null) handleFeedbackSound(p, rawSounds);
+    }
 
-        String rawSounds = s.getString("Sounds");
-        if (rawSounds == null || rawSounds.isEmpty()) {
-            rawSounds = s.getString("Sound");
-        }
-        if (rawSounds == null || rawSounds.isEmpty()) return;
-
+    private void handleFeedbackSound(Player p, String rawSounds) {
         for (String entry : rawSounds.split(",")) {
             String[] parts = entry.trim().split("-");
             if (parts.length == 0 || parts[0].isEmpty()) continue;
-
-            String soundName = parts[0].toUpperCase();
-            float volume = (parts.length > 1) ? Float.parseFloat(parts[1]) : 1.0f;
-            float pitch = (parts.length > 2) ? Float.parseFloat(parts[2]) : 1.0f;
-            int delay = (parts.length > 3) ? Integer.parseInt(parts[3]) : 0;
-
             try {
-                Sound sound = Sound.valueOf(soundName);
-                if (delay <= 0) {
-                    p.playSound(p.getLocation(), sound, volume, pitch);
-                } else {
+                Sound sound = Sound.valueOf(parts[0].toUpperCase());
+                float volume = (parts.length > 1) ? Float.parseFloat(parts[1]) : 1.0f;
+                float pitch = (parts.length > 2) ? Float.parseFloat(parts[2]) : 1.0f;
+                int delay = (parts.length > 3) ? Integer.parseInt(parts[3]) : 0;
+                if (delay <= 0) p.playSound(p.getLocation(), sound, volume, pitch);
+                else {
                     new BukkitRunnable() {
-                        @Override
-                        public void run() {
-                            if (p.isOnline()) {
-                                p.playSound(p.getLocation(), sound, volume, pitch);
-                            }
-                        }
+                        @Override public void run() { if (p.isOnline()) p.playSound(p.getLocation(), sound, volume, pitch); }
                     }.runTaskLater(plugin, (long) delay);
                 }
-            } catch (IllegalArgumentException e) {
-                plugin.getLogger().warning("Invalid sound name in config: " + soundName);
-            }
+            } catch (Exception ignored) {}
         }
     }
 
-    private String translate(String s) { return s == null ? "" : ChatColor.translateAlternateColorCodes('&', s); }
+    private String translate(String s) {
+        if (s == null) return "";
+
+        java.util.regex.Pattern hexPattern =
+                java.util.regex.Pattern.compile("&x(&[0-9a-fA-F]){6}");
+        java.util.regex.Matcher matcher = hexPattern.matcher(s);
+        StringBuffer sb = new StringBuffer();
+
+        while (matcher.find()) {
+            String hex = matcher.group().replace("&", "").substring(1);
+            try {
+                matcher.appendReplacement(
+                        sb,
+                        java.util.regex.Matcher.quoteReplacement(
+                                net.md_5.bungee.api.ChatColor.of("#" + hex).toString()
+                        )
+                );
+            } catch (Exception ignored) {
+                matcher.appendReplacement(
+                        sb,
+                        java.util.regex.Matcher.quoteReplacement(matcher.group())
+                );
+            }
+        }
+
+        matcher.appendTail(sb);
+        return ChatColor.translateAlternateColorCodes('&', sb.toString());
+    }
     private String repeat(String s, int n) { StringBuilder b = new StringBuilder(); for(int i=0; i<n; i++) b.append(s); return b.toString(); }
     @FunctionalInterface interface FeatureAction { boolean execute(); }
 }

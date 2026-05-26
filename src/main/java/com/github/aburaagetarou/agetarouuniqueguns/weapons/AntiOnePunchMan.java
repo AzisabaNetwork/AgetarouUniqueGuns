@@ -15,11 +15,16 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.potion.PotionEffect;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.potion.PotionEffectType;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
 
 /**
  * AntiOnePunchMan
@@ -29,6 +34,7 @@ import java.util.Map;
 public class AntiOnePunchMan implements Listener {
 
     public final static String WEAPON_NAME = "Deflection_Shield";
+    public final static String KEY_POTION_EFFECTS = "Potion_Effect";
 
     public final static String KEY_MAX_DAMAGE_PER_TICK = "Max_Damage_Per_Tick";
     public final static String KEY_EFFECT_DURATION = "Effect_Duration";
@@ -39,8 +45,11 @@ public class AntiOnePunchMan implements Listener {
         set(KEY_EFFECT_DURATION, 240);
     }}};
 
-    // 効果発動中のプレイヤー
+    // 効果発動中のプレイヤー（値は効果が終了するサーバーTick）
     private static final Map<Entity, Integer> effectPlayers = new HashMap<>();
+
+    // 右クリックして被弾を待っている「待機状態」のプレイヤー
+    private static final Map<Entity, Boolean> readyPlayers = new HashMap<>();
 
     // 被ダメージカウント
     private static final Map<Entity, Double> damageCount = new HashMap<>();
@@ -52,6 +61,47 @@ public class AntiOnePunchMan implements Listener {
      */
     public static void initTimer() {
         timerTask = Bukkit.getScheduler().runTaskTimer(AgetarouUniqueGuns.getInstance(), damageCount::clear, 0, 1);
+    }
+
+    /**
+     * 設定からポーションエフェクトリストを取得
+     * 書式: "EFFECT_NAME-DURATION-AMPLIFIER" (例: "SLOW_DIGGING-50-1")
+     * @return List<PotionEffect>
+     */
+    public static List<PotionEffect> getPotionEffects() {
+        List<PotionEffect> result = new ArrayList<>();
+        ConfigurationSection config = WeaponConfig.getWeaponConfig(WEAPON_NAME);
+        if (config == null || !config.contains(KEY_POTION_EFFECTS)) return result;
+
+        List<String> entries = config.getStringList(KEY_POTION_EFFECTS);
+        // 単一文字列でも対応 (Java 8 対応)
+        if (entries.isEmpty() && config.isString(KEY_POTION_EFFECTS)) {
+            entries = Collections.singletonList(config.getString(KEY_POTION_EFFECTS));
+        }
+
+        for (String entry : entries) {
+            String[] parts = entry.split("-");
+            if (parts.length != 3) {
+                AgetarouUniqueGuns.getInstance().getLogger().warning(
+                        "Invalid potion effect format: '" + entry + "'. Expected EFFECT_NAME-DURATION-AMPLIFIER");
+                continue;
+            }
+            PotionEffectType type = PotionEffectType.getByName(parts[0]);
+            if (type == null) {
+                AgetarouUniqueGuns.getInstance().getLogger().warning(
+                        "Unknown potion effect type: " + parts[0]);
+                continue;
+            }
+            try {
+                int duration = Integer.parseInt(parts[1]);
+                int amplifier = Integer.parseInt(parts[2]) - 1; // 0始まりなので-1
+                result.add(new PotionEffect(type, duration, amplifier, false, true));
+            } catch (NumberFormatException e) {
+                AgetarouUniqueGuns.getInstance().getLogger().warning(
+                        "Invalid number in potion effect: '" + entry + "'");
+            }
+        }
+        return result;
     }
 
     /**
@@ -106,46 +156,61 @@ public class AntiOnePunchMan implements Listener {
     }
 
     /**
-     * 効果発動
+     * 被弾時に呼び出され、実際にシールドとポーションの効果を発動する
      * @param player プレイヤー
+     * @param weaponTitle 武器の識別称号
      */
-    public static void apply(Player player) {
-        String weaponTitle = API.getCSUtility().getWeaponTitle(player.getInventory().getItemInMainHand());
-        if(weaponTitle == null) return;
-        String orgWeaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
-        if(!WEAPON_NAME.equals(orgWeaponTitle)) return;
-
+    public static void apply(Player player, String weaponTitle) {
         String weaponName = API.getCSDirector().getString(weaponTitle + ".Item_Information.Item_Name");
-
+        if (weaponName == null) weaponName = WEAPON_NAME;
+        final String finalWeaponName = weaponName;
         int duration = getEffectDuration();
         effectPlayers.put(player, Bukkit.getServer().getCurrentTick() + duration);
+        player.addPotionEffects(getPotionEffects());
         Bukkit.getScheduler().runTaskLater(AgetarouUniqueGuns.getInstance(), () -> {
-            player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(weaponName + " &cの効果が切れました"));
+            player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(finalWeaponName + " &cの効果が切れました"));
+            effectPlayers.remove(player);
         }, duration);
     }
 
     /**
-     * 武器使用
-     * @param event 武器使用イベント
+     * 武器使用（右クリックした瞬間）
+     * 実際に発動はせず、被弾を待つ「待機状態」に登録する
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onWeaponShoot(WeaponShootEvent event) {
         String weaponTitle = CSUtilities.getOriginalWeaponName(event.getWeaponTitle());
         if(!WEAPON_NAME.equals(weaponTitle)) return;
 
-        apply(event.getPlayer());
+        // 待機状態（構え状態）にする
+        readyPlayers.put(event.getPlayer(), true);
     }
 
     /**
-     * 被ダメージ
-     * @param event 被ダメージイベント
+     * 被ダメージイベント
      */
     @EventHandler
     public void onDamage(WeaponDamageEntityEvent event) {
         Entity victim = event.getVictim();
+        if (!(victim instanceof Player)) return;
+        Player player = (Player) victim;
 
-        if(effectPlayers.getOrDefault(victim, 0) > Bukkit.getServer().getCurrentTick()) {
-            double dpt = AntiOnePunchMan.damageCount.getOrDefault(victim, 0.0d);
+        int currentTick = Bukkit.getServer().getCurrentTick();
+
+        // 1. 待機状態中にダメージを受けたら、ここで初めてシールド効果を「発動」させる
+        if (readyPlayers.getOrDefault(player, false) && effectPlayers.getOrDefault(player, 0) <= currentTick) {
+            readyPlayers.remove(player); // 待機状態を解除
+
+            // メインハンドの武器のタイトルを取得してapplyに渡す
+            String weaponTitle = API.getCSUtility().getWeaponTitle(player.getInventory().getItemInMainHand());
+            if (weaponTitle != null) {
+                apply(player, weaponTitle);
+            }
+        }
+
+        // 2. シールド効果時間中のダメージ軽減・無効化処理
+        if (effectPlayers.getOrDefault(player, 0) > currentTick) {
+            double dpt = AntiOnePunchMan.damageCount.getOrDefault(player, 0.0d);
             if(dpt >= getDamageLimitPerTick()) {
                 event.setCancelled(true);
                 return;
@@ -154,10 +219,7 @@ public class AntiOnePunchMan implements Listener {
             if(newDpt >= getDamageLimitPerTick()) {
                 event.setDamage(getDamageLimitPerTick() - dpt);
             }
-            AntiOnePunchMan.damageCount.put(victim, newDpt);
-        }
-        else {
-            effectPlayers.remove(victim);
+            AntiOnePunchMan.damageCount.put(player, newDpt);
         }
     }
 }
