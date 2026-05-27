@@ -37,11 +37,13 @@ public class AntiOnePunchMan implements Listener {
     public final static String KEY_POTION_EFFECTS = "Potion_Effect";
 
     public final static String KEY_MAX_DAMAGE_PER_TICK = "Max_Damage_Per_Tick";
+    public final static String KEY_THRESHOLD_DAMAGE = "Threshold_Damage";
     public final static String KEY_EFFECT_DURATION = "Effect_Duration";
 
     // 初期設定
     private static final ConfigurationSection defaultConfig = new YamlConfiguration(){{{
         set(KEY_MAX_DAMAGE_PER_TICK, 19.0d);
+        set(KEY_THRESHOLD_DAMAGE, 20.0d);
         set(KEY_EFFECT_DURATION, 240);
     }}};
 
@@ -142,6 +144,20 @@ public class AntiOnePunchMan implements Listener {
     }
 
     /**
+     * 設定から被ダメージ反応閾値を取得
+     * @return double 最大被ダメージ値
+     */
+    public static double getThresholdDamage() {
+        try {
+            return new BigDecimal(getConfig(KEY_THRESHOLD_DAMAGE).toString()).doubleValue();
+        }
+        catch (ClassCastException e) {
+            AgetarouUniqueGuns.getInstance().getLogger().warning("Invalid configuration value: " + WEAPON_NAME + "." + KEY_THRESHOLD_DAMAGE);
+            return defaultConfig.getDouble(KEY_THRESHOLD_DAMAGE);
+        }
+    }
+
+    /**
      * 設定から効果時間を取得
      * @return int 効果時間(Tick)
      */
@@ -210,7 +226,11 @@ public class AntiOnePunchMan implements Listener {
 
         // 2. シールド効果時間中のダメージ軽減・無効化処理
         if (effectPlayers.getOrDefault(player, 0) > currentTick) {
-            double dpt = AntiOnePunchMan.damageCount.getOrDefault(player, 0.0d);
+			// ダメージが閾値未満であれば
+			if(event.getDamage() < getThresholdDamage()) {
+				return;
+			}
+			double dpt = AntiOnePunchMan.damageCount.getOrDefault(player, 0.0d);
             if(dpt >= getDamageLimitPerTick()) {
                 event.setCancelled(true);
                 return;
