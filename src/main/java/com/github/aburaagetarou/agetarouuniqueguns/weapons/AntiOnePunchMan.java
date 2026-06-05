@@ -182,7 +182,6 @@ public class AntiOnePunchMan implements Listener {
         final String finalWeaponName = weaponName;
         int duration = getEffectDuration();
         effectPlayers.put(player, Bukkit.getServer().getCurrentTick() + duration);
-        player.addPotionEffects(getPotionEffects());
         Bukkit.getScheduler().runTaskLater(AgetarouUniqueGuns.getInstance(), () -> {
             player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(finalWeaponName + " &cの効果が切れました"));
             effectPlayers.remove(player);
@@ -232,13 +231,18 @@ public class AntiOnePunchMan implements Listener {
 			}
 			double dpt = AntiOnePunchMan.damageCount.getOrDefault(player, 0.0d);
             if(dpt >= getDamageLimitPerTick()) {
+                player.addPotionEffects(getPotionEffects());
                 event.setCancelled(true);
                 return;
             }
+
             double newDpt = dpt + event.getDamage();
+
             if(newDpt >= getDamageLimitPerTick()) {
+                player.addPotionEffects(getPotionEffects());
                 event.setDamage(getDamageLimitPerTick() - dpt);
             }
+
             AntiOnePunchMan.damageCount.put(player, newDpt);
         }
     }
