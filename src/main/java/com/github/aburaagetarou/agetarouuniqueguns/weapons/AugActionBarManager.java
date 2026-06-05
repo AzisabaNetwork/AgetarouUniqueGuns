@@ -110,7 +110,12 @@ public class AugActionBarManager {
     private void setupProtocolLibGuard() {
         ProtocolManager manager = ProtocolLibrary.getProtocolManager();
 
-        manager.addPacketListener(new PacketAdapter(plugin, ListenerPriority.HIGHEST, PacketType.Play.Server.CHAT) {
+        manager.addPacketListener(new PacketAdapter(
+                plugin,
+                ListenerPriority.HIGHEST,
+                PacketType.Play.Server.CHAT,
+                PacketType.Play.Server.TITLE
+        ) {
             @Override
             public void onPacketSending(PacketEvent event) {
                 if (!isActionBarPacket(event)) return;
@@ -133,17 +138,32 @@ public class AugActionBarManager {
     }
 
     private boolean isActionBarPacket(PacketEvent event) {
-        try {
-            EnumWrappers.ChatType type = event.getPacket().getChatTypes().readSafely(0);
-            if (type != null) {
-                return type == EnumWrappers.ChatType.GAME_INFO;
-            }
-        } catch (Exception ignored) {}
+        if (event.getPacketType() == PacketType.Play.Server.TITLE) {
+            try {
+                EnumWrappers.TitleAction action =
+                        event.getPacket().getTitleActions().readSafely(0);
 
-        try {
-            Byte position = event.getPacket().getBytes().readSafely(0);
-            return position != null && position == 2;
-        } catch (Exception ignored) {}
+                return action == EnumWrappers.TitleAction.ACTIONBAR;
+            } catch (Exception ignored) {
+                return false;
+            }
+        }
+
+        if (event.getPacketType() == PacketType.Play.Server.CHAT) {
+            try {
+                EnumWrappers.ChatType type =
+                        event.getPacket().getChatTypes().readSafely(0);
+
+                if (type != null) {
+                    return type == EnumWrappers.ChatType.GAME_INFO;
+                }
+            } catch (Exception ignored) {}
+
+            try {
+                Byte position = event.getPacket().getBytes().readSafely(0);
+                return position != null && position == 2;
+            } catch (Exception ignored) {}
+        }
 
         return false;
     }
