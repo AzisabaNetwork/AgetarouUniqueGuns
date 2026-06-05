@@ -65,11 +65,13 @@ public class WeaponsSPMode implements Listener {
     private final Map<UUID, Boolean> jumpMap = new HashMap<>();
     private final Map<UUID, Double> lastYMap = new HashMap<>();
 
-    //Athor
+    //Othor
     private final Map<UUID, BukkitRunnable> weaponReturnCooldownBarTaskMap = new HashMap<>();
+    private final AugActionBarManager actionBarManager;
 
     public WeaponsSPMode(JavaPlugin plugin) {
         this.plugin = plugin;
+        this.actionBarManager = new AugActionBarManager(plugin, this::colorize);
     }
 
     /**
@@ -308,6 +310,7 @@ public class WeaponsSPMode implements Listener {
 
         BukkitRunnable returnCooldownTask = weaponReturnCooldownBarTaskMap.remove(uuid);
         if (returnCooldownTask != null) returnCooldownTask.cancel();
+        actionBarManager.stop(uuid);
     }
 
     @EventHandler
@@ -384,8 +387,12 @@ public class WeaponsSPMode implements Listener {
                 String notReady = returnCdSection.getString("NotReady_Actionbar");
                 if (notReady != null && !notReady.isEmpty()) {
                     actionBarPauseMap.put(p.getUniqueId(), 20);
-                    p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                            new TextComponent(colorize(notReady)));
+                    actionBarManager.send(
+                            p,
+                            notReady,
+                            20,
+                            AugActionBarManager.PRIORITY_MESSAGE
+                    );
                 }
             }
             return;
@@ -459,8 +466,7 @@ public class WeaponsSPMode implements Listener {
         String message = changeSection.getString("Message");
         if (message != null && !message.isEmpty()) {
             actionBarPauseMap.put(p.getUniqueId(), 40);
-            p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                    new TextComponent(colorize(message)));
+            actionBarManager.send(p, message, 40, AugActionBarManager.PRIORITY_MESSAGE);
         }
 
         sendTitleSubtitle(p, changeSection);
@@ -598,8 +604,7 @@ public class WeaponsSPMode implements Listener {
 
                 int current = getWeaponKillStreak(p, weaponTitle);
                 String display = buildStreakCounter(current, maxCount, leftSymbol, rightSymbol, barFormat);
-                p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                        new TextComponent(colorize(display)));
+                actionBarManager.send(p, display, 8, AugActionBarManager.PRIORITY_STREAK);
             }
         };
 
@@ -630,9 +635,7 @@ public class WeaponsSPMode implements Listener {
     }
 
     private void sendNotenoughActionbar(Player p, String message, int pauseTicks) {
-        actionBarPauseMap.put(p.getUniqueId(), pauseTicks);
-        p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                new TextComponent(ChatColor.translateAlternateColorCodes('&', message)));
+        actionBarManager.send(p, message, pauseTicks, AugActionBarManager.PRIORITY_MESSAGE);
     }
 
     // ===== ストリークイベント =====
@@ -763,8 +766,7 @@ public class WeaponsSPMode implements Listener {
         String actionbarMsg = eventConfig.getString("Actionbar");
         if (actionbarMsg != null && !actionbarMsg.isEmpty()) {
             actionBarPauseMap.put(p.getUniqueId(), 40);
-            p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                    new TextComponent(colorize(actionbarMsg)));
+            actionBarManager.send(p, actionbarMsg, 40, AugActionBarManager.PRIORITY_MESSAGE);
         }
 
         // チャット
@@ -842,8 +844,7 @@ public class WeaponsSPMode implements Listener {
                 String message = timedSection.getString("Message");
                 if (message != null && !message.isEmpty()) {
                     actionBarPauseMap.put(p.getUniqueId(), 40);
-                    p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                            new TextComponent(colorize(message)));
+                    actionBarManager.send(p, message, 40, AugActionBarManager.PRIORITY_MESSAGE);
                 }
 
                 this.cancel();
@@ -879,8 +880,7 @@ public class WeaponsSPMode implements Listener {
                     String endMsg = sec.getString("End_Action_Bar");
                     if (endMsg != null && !endMsg.isEmpty()) {
                         actionBarPauseMap.put(uuid, 30);
-                        p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                                new TextComponent(colorize(endMsg)));
+                        actionBarManager.send(p, endMsg, 30, AugActionBarManager.PRIORITY_BAR);
                     }
 
                     String endSound = sec.getString("End_Sound");
@@ -895,8 +895,12 @@ public class WeaponsSPMode implements Listener {
                 String actionStr = sec.getString("Action_Bar");
                 if (actionStr != null && !actionStr.isEmpty()) {
                     String bar = buildBar((double) i / ticks, sec);
-                    p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                            new TextComponent(colorize(actionStr.replace("{bar}", bar))));
+                    actionBarManager.send(
+                            p,
+                            actionStr.replace("{bar}", bar),
+                            8,
+                            AugActionBarManager.PRIORITY_BAR
+                    );
                 }
 
                 i += 2;
@@ -972,8 +976,12 @@ public class WeaponsSPMode implements Listener {
                 String action = sec.getString("Action_Bar");
                 if (action != null && !action.isEmpty()) {
                     String bar = buildReturnCooldownBar((double) elapsed / ticks, sec);
-                    p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                            new TextComponent(colorize(action.replace("{bar}", bar))));
+                    actionBarManager.send(
+                            p,
+                            action.replace("{bar}", bar),
+                            8,
+                            AugActionBarManager.PRIORITY_BAR
+                    );
                 }
 
                 elapsed += 2;
@@ -981,8 +989,7 @@ public class WeaponsSPMode implements Listener {
                     String end = sec.getString("End_Action_Bar");
                     if (end != null && !end.isEmpty()) {
                         actionBarPauseMap.put(uuid, 30);
-                        p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                                new TextComponent(colorize(end)));
+                        actionBarManager.send(p, end, 30, AugActionBarManager.PRIORITY_BAR);
                     }
 
                     String endSound = sec.getString("End_Sound");
