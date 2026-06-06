@@ -34,6 +34,7 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
 
 public class WeaponsSPMode implements Listener {
 
@@ -71,53 +72,49 @@ public class WeaponsSPMode implements Listener {
 
     public WeaponsSPMode(JavaPlugin plugin) {
         this.plugin = plugin;
-        this.actionBarManager = new AugActionBarManager(plugin, this::colorize);
+        this.actionBarManager = new AugActionBarManager(plugin, WeaponsSPMode::colorize);
     }
 
     /**
      * &x&R&R&G&G&B&B 形式および §x§R§R§G§G§B§B 形式の16進数カラーコードを変換してから
      * 通常の &a 等も変換する
      */
-    private String colorize(String text) {
+    public static String colorize(String text) {
         if (text == null) return "";
-        // §x§R§R§G§G§B§B → BungeeCord ChatColor (設定ファイルで § を使っている場合)
-        // § は \u00A7 としてもマッチするように
-        String sectionChar = "\u00A7"; // §
-        java.util.regex.Pattern hexPatternSection =
-                java.util.regex.Pattern.compile(sectionChar + "x(" + sectionChar + "[0-9a-fA-F]){6}");
-        java.util.regex.Matcher matcherSection = hexPatternSection.matcher(text);
-        StringBuffer sb = new StringBuffer();
-        while (matcherSection.find()) {
-            // "§x§R§R§G§G§B§B" から "#RRGGBB" を取り出す
-            String hex = matcherSection.group().replace(sectionChar, "").substring(1); // "RRGGBB"
-            try {
-                matcherSection.appendReplacement(sb,
-                        net.md_5.bungee.api.ChatColor.of("#" + hex).toString());
-            } catch (Exception ignored) {
-                matcherSection.appendReplacement(sb, matcherSection.group());
-            }
-        }
-        matcherSection.appendTail(sb);
-        text = sb.toString();
+        text = convertHex(text, '&');
+        return ChatColor.translateAlternateColorCodes('&', text);
+    }
 
-        // &x&R&R&G&G&B&B → BungeeCord ChatColor
-        java.util.regex.Pattern hexPattern =
-                java.util.regex.Pattern.compile("&x(&[0-9a-fA-F]){6}");
-        java.util.regex.Matcher matcher = hexPattern.matcher(text);
-        sb = new StringBuffer();
-        while (matcher.find()) {
-            // "&x&R&R&G&G&B&B" から "#RRGGBB" を取り出す
-            String hex = matcher.group().replace("&", "").substring(1); // "RRGGBB"
-            try {
-                matcher.appendReplacement(sb,
-                        net.md_5.bungee.api.ChatColor.of("#" + hex).toString());
-            } catch (Exception ignored) {
-                matcher.appendReplacement(sb, matcher.group());
+    private static String convertHex(String text, char p) {
+        StringBuilder out = new StringBuilder();
+        int i = 0;
+        while (i < text.length()) {
+            if (i + 13 < text.length()
+                    && text.charAt(i) == p
+                    && (text.charAt(i + 1) == 'x' || text.charAt(i + 1) == 'X')
+                    && isHexBlock(text, i + 2, p)) {
+                StringBuilder hex = new StringBuilder();
+                for (int j = 0; j < 6; j++) hex.append(text.charAt(i + 3 + j * 2));
+                try {
+                    out.append(net.md_5.bungee.api.ChatColor.of("#" + hex).toString());
+                    i += 14;
+                    continue;
+                } catch (Exception ignored) {}
             }
+            out.append(text.charAt(i++));
         }
-        matcher.appendTail(sb);
-        // 通常の &a 等も変換
-        return ChatColor.translateAlternateColorCodes('&', sb.toString());
+        return out.toString();
+    }
+
+    private static boolean isHexBlock(String text, int start, char p) {
+        for (int j = 0; j < 6; j++) {
+            int pos = start + j * 2;
+            if (pos + 1 >= text.length()) return false;
+            if (text.charAt(pos) != p) return false;
+            char c = text.charAt(pos + 1);
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) return false;
+        }
+        return true;
     }
 
     // ===== イベントハンドラ =====
