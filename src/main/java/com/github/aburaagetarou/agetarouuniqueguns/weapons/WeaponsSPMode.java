@@ -75,16 +75,36 @@ public class WeaponsSPMode implements Listener {
     }
 
     /**
-     * &x&R&R&G&G&B&B 形式の16進数カラーコードを変換してから
+     * &x&R&R&G&G&B&B 形式および §x§R§R§G§G§B§B 形式の16進数カラーコードを変換してから
      * 通常の &a 等も変換する
      */
     private String colorize(String text) {
         if (text == null) return "";
+        // §x§R§R§G§G§B§B → BungeeCord ChatColor (設定ファイルで § を使っている場合)
+        // § は \u00A7 としてもマッチするように
+        String sectionChar = "\u00A7"; // §
+        java.util.regex.Pattern hexPatternSection =
+                java.util.regex.Pattern.compile(sectionChar + "x(" + sectionChar + "[0-9a-fA-F]){6}");
+        java.util.regex.Matcher matcherSection = hexPatternSection.matcher(text);
+        StringBuffer sb = new StringBuffer();
+        while (matcherSection.find()) {
+            // "§x§R§R§G§G§B§B" から "#RRGGBB" を取り出す
+            String hex = matcherSection.group().replace(sectionChar, "").substring(1); // "RRGGBB"
+            try {
+                matcherSection.appendReplacement(sb,
+                        net.md_5.bungee.api.ChatColor.of("#" + hex).toString());
+            } catch (Exception ignored) {
+                matcherSection.appendReplacement(sb, matcherSection.group());
+            }
+        }
+        matcherSection.appendTail(sb);
+        text = sb.toString();
+
         // &x&R&R&G&G&B&B → BungeeCord ChatColor
         java.util.regex.Pattern hexPattern =
                 java.util.regex.Pattern.compile("&x(&[0-9a-fA-F]){6}");
         java.util.regex.Matcher matcher = hexPattern.matcher(text);
-        StringBuffer sb = new StringBuffer();
+        sb = new StringBuffer();
         while (matcher.find()) {
             // "&x&R&R&G&G&B&B" から "#RRGGBB" を取り出す
             String hex = matcher.group().replace("&", "").substring(1); // "RRGGBB"
@@ -682,7 +702,7 @@ public class WeaponsSPMode implements Listener {
                 }
                 String notEnoughChat = costSec.getString("Notenough_Saychat");
                 if (notEnoughChat != null && !notEnoughChat.isEmpty()) {
-                    p.sendMessage(ChatColor.translateAlternateColorCodes('&', notEnoughChat));
+                    p.sendMessage(notEnoughChat);
                 }
             }
         }
@@ -772,7 +792,7 @@ public class WeaponsSPMode implements Listener {
         // チャット
         String chatMsg = eventConfig.getString("Saychat");
         if (chatMsg != null && !chatMsg.isEmpty()) {
-            p.sendMessage(ChatColor.translateAlternateColorCodes('&', chatMsg));
+            p.sendMessage(colorize(chatMsg));
         }
 
         // Title / Subtitle
@@ -1014,7 +1034,7 @@ public class WeaponsSPMode implements Listener {
         String leftColor = sec.getString("Left_Color", "&a");
         String rightColor = sec.getString("Right_Color", "&7");
 
-        return colorize(leftColor + repeat(sym, left) + rightColor + repeat(sym, len - left));
+        return leftColor + repeat(sym, left) + rightColor + repeat(sym, len - left);
     }
 
     private String buildBar(double pct, ConfigurationSection sec) {
@@ -1022,9 +1042,9 @@ public class WeaponsSPMode implements Listener {
         int left = (int) (pct * len);
         String sym = sec.getString("Symbol", "|");
 
-        return colorize(sec.getString("Left_Color", "&a"))
+        return sec.getString("Left_Color", "&a")
                 + repeat(sym, left)
-                + colorize(sec.getString("Right_Color", "&c"))
+                + sec.getString("Right_Color", "&c")
                 + repeat(sym, len - left);
     }
 
@@ -1519,8 +1539,8 @@ public class WeaponsSPMode implements Listener {
         String title = config.getString("Title");
         String subtitle = config.getString("Subtitle");
         if (title != null || subtitle != null) {
-            String t  = title    != null ? ChatColor.translateAlternateColorCodes('&', title)    : "";
-            String st = subtitle != null ? ChatColor.translateAlternateColorCodes('&', subtitle) : "";
+            String t  = title    != null ? colorize(title)    : "";
+            String st = subtitle != null ? colorize(subtitle) : "";
             p.sendTitle(t, st, 10, 70, 20);
         }
     }
