@@ -82,7 +82,15 @@ public class WeaponsSPMode implements Listener {
     public static String colorize(String text) {
         if (text == null) return "";
         text = convertHex(text, '&');
-        return ChatColor.translateAlternateColorCodes('&', text);
+        text = convertHex(text, '\u00A7');
+        text = ChatColor.translateAlternateColorCodes('&', text);
+        return text;
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) sb.append(String.format("%02X ", b));
+        return sb.toString();
     }
 
     private static String convertHex(String text, char p) {
@@ -176,7 +184,6 @@ public class WeaponsSPMode implements Listener {
         ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
         if (root == null) return;
 
-        // AUG設定がある武器は、Fキーを持ち替えではなく検知専用にする
         event.setCancelled(true);
 
         ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
@@ -197,10 +204,12 @@ public class WeaponsSPMode implements Listener {
         ConfigurationSection eventSection = killStreakSection.getConfigurationSection("Streak_Event");
         if (eventSection == null || !eventSection.getBoolean("Enable", false)) return;
 
-        if (!hasTriggerAction(eventSection, "offhand")) return;
+        String triggerAction = p.isSneaking() ? "shift_and_offhand" : "offhand";
+
+        if (!hasTriggerAction(eventSection, "offhand") && !hasTriggerAction(eventSection, "shift,offhand")) return;
 
         int currentStreak = getWeaponKillStreak(p, weaponTitle);
-        checkStreakEvents(p, weaponTitle, currentStreak, "offhand");
+        checkStreakEvents(p, weaponTitle, currentStreak, triggerAction);
     }
     private boolean hasTriggerAction(ConfigurationSection eventSection, String targetAction) {
         for (ConfigurationSection costSec : getCostSections(eventSection)) {
@@ -715,10 +724,18 @@ public class WeaponsSPMode implements Listener {
 
     private boolean matchesAction(String requiredActions, String triggerAction, Player p) {
         if (requiredActions.isEmpty()) return triggerAction == null;
-        for (String action : requiredActions.split(",")) {
-            switch (action.trim().toLowerCase()) {
-                case "offhand": if ("offhand".equals(triggerAction)) return true; break;
-                case "shift":   if ("shift".equals(triggerAction) || p.isSneaking()) return true; break;
+
+        String normalized = requiredActions.trim().toLowerCase();
+
+        // shift,offhand または offhand,shift は同時押し専用
+        if (normalized.equals("shift,offhand") || normalized.equals("offhand,shift")) {
+            return "shift_and_offhand".equals(triggerAction);
+        }
+
+        for (String action : normalized.split(",")) {
+            switch (action.trim()) {
+                case "offhand": if ("offhand".equals(triggerAction) || "shift_and_offhand".equals(triggerAction)) return true; break;
+                case "shift":   if ("shift".equals(triggerAction) || "shift_and_offhand".equals(triggerAction) || p.isSneaking()) return true; break;
                 case "jump":    if ("jump".equals(triggerAction) || jumpMap.getOrDefault(p.getUniqueId(), false)) return true; break;
             }
         }

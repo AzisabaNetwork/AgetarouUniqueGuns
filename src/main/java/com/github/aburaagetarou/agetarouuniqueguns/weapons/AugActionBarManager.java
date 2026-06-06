@@ -78,7 +78,10 @@ public class AugActionBarManager {
                 }
 
                 bypassMap.merge(uuid, 1, Integer::sum);
-                player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(text));
+                player.spigot().sendMessage(
+                        ChatMessageType.ACTION_BAR,
+                        net.md_5.bungee.api.chat.TextComponent.fromLegacyText(text)
+                );
             }
         };
 
