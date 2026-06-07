@@ -34,6 +34,7 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
 
 public class WeaponsSPMode implements Listener {
 
@@ -65,37 +66,63 @@ public class WeaponsSPMode implements Listener {
     private final Map<UUID, Boolean> jumpMap = new HashMap<>();
     private final Map<UUID, Double> lastYMap = new HashMap<>();
 
-    //Athor
+    //Othor
     private final Map<UUID, BukkitRunnable> weaponReturnCooldownBarTaskMap = new HashMap<>();
+    private final AugActionBarManager actionBarManager;
 
     public WeaponsSPMode(JavaPlugin plugin) {
         this.plugin = plugin;
+        this.actionBarManager = new AugActionBarManager(plugin, WeaponsSPMode::colorize);
     }
 
     /**
-     * &x&R&R&G&G&B&B 形式の16進数カラーコードを変換してから
+     * &x&R&R&G&G&B&B 形式および §x§R§R§G§G§B§B 形式の16進数カラーコードを変換してから
      * 通常の &a 等も変換する
      */
-    private String colorize(String text) {
+    public static String colorize(String text) {
         if (text == null) return "";
-        // &x&R&R&G&G&B&B → BungeeCord ChatColor
-        java.util.regex.Pattern hexPattern =
-                java.util.regex.Pattern.compile("&x(&[0-9a-fA-F]){6}");
-        java.util.regex.Matcher matcher = hexPattern.matcher(text);
-        StringBuffer sb = new StringBuffer();
-        while (matcher.find()) {
-            // "&x&R&R&G&G&B&B" から "#RRGGBB" を取り出す
-            String hex = matcher.group().replace("&", "").substring(1); // "RRGGBB"
-            try {
-                matcher.appendReplacement(sb,
-                        net.md_5.bungee.api.ChatColor.of("#" + hex).toString());
-            } catch (Exception ignored) {
-                matcher.appendReplacement(sb, matcher.group());
+        text = convertHex(text, '&');
+        text = convertHex(text, '\u00A7');
+        text = ChatColor.translateAlternateColorCodes('&', text);
+        return text;
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) sb.append(String.format("%02X ", b));
+        return sb.toString();
+    }
+
+    private static String convertHex(String text, char p) {
+        StringBuilder out = new StringBuilder();
+        int i = 0;
+        while (i < text.length()) {
+            if (i + 13 < text.length()
+                    && text.charAt(i) == p
+                    && (text.charAt(i + 1) == 'x' || text.charAt(i + 1) == 'X')
+                    && isHexBlock(text, i + 2, p)) {
+                StringBuilder hex = new StringBuilder();
+                for (int j = 0; j < 6; j++) hex.append(text.charAt(i + 3 + j * 2));
+                try {
+                    out.append(net.md_5.bungee.api.ChatColor.of("#" + hex).toString());
+                    i += 14;
+                    continue;
+                } catch (Exception ignored) {}
             }
+            out.append(text.charAt(i++));
         }
-        matcher.appendTail(sb);
-        // 通常の &a 等も変換
-        return ChatColor.translateAlternateColorCodes('&', sb.toString());
+        return out.toString();
+    }
+
+    private static boolean isHexBlock(String text, int start, char p) {
+        for (int j = 0; j < 6; j++) {
+            int pos = start + j * 2;
+            if (pos + 1 >= text.length()) return false;
+            if (text.charAt(pos) != p) return false;
+            char c = text.charAt(pos + 1);
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) return false;
+        }
+        return true;
     }
 
     // ===== イベントハンドラ =====
@@ -157,7 +184,6 @@ public class WeaponsSPMode implements Listener {
         ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
         if (root == null) return;
 
-        // AUG設定がある武器は、Fキーを持ち替えではなく検知専用にする
         event.setCancelled(true);
 
         ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
@@ -178,17 +204,22 @@ public class WeaponsSPMode implements Listener {
         ConfigurationSection eventSection = killStreakSection.getConfigurationSection("Streak_Event");
         if (eventSection == null || !eventSection.getBoolean("Enable", false)) return;
 
-        if (!hasTriggerAction(eventSection, "offhand")) return;
+        if (!hasOffhandTrigger(eventSection)) return;
+
+        String triggerAction = p.isSneaking() ? "shift_and_offhand" : "offhand";
 
         int currentStreak = getWeaponKillStreak(p, weaponTitle);
-        checkStreakEvents(p, weaponTitle, currentStreak, "offhand");
+        checkStreakEvents(p, weaponTitle, currentStreak, triggerAction);
     }
     private boolean hasTriggerAction(ConfigurationSection eventSection, String targetAction) {
         for (ConfigurationSection costSec : getCostSections(eventSection)) {
-            String actions = costSec.getString("Trigger_Action", "");
-            for (String action : actions.split(",")) {
-                if (action.trim().equalsIgnoreCase(targetAction)) {
-                    return true;
+            String actions = costSec.getString("Trigger_Action", "").trim().toLowerCase();
+            // 完全一致で先に確認
+            if (actions.equals(targetAction.toLowerCase())) return true;
+            // 単体アクションの場合のみsplitして比較
+            if (!targetAction.contains(",")) {
+                for (String action : actions.split(",")) {
+                    if (action.trim().equalsIgnoreCase(targetAction)) return true;
                 }
             }
         }
@@ -308,6 +339,7 @@ public class WeaponsSPMode implements Listener {
 
         BukkitRunnable returnCooldownTask = weaponReturnCooldownBarTaskMap.remove(uuid);
         if (returnCooldownTask != null) returnCooldownTask.cancel();
+        actionBarManager.stop(uuid);
     }
 
     @EventHandler
@@ -384,8 +416,12 @@ public class WeaponsSPMode implements Listener {
                 String notReady = returnCdSection.getString("NotReady_Actionbar");
                 if (notReady != null && !notReady.isEmpty()) {
                     actionBarPauseMap.put(p.getUniqueId(), 20);
-                    p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                            new TextComponent(colorize(notReady)));
+                    actionBarManager.send(
+                            p,
+                            notReady,
+                            20,
+                            AugActionBarManager.PRIORITY_MESSAGE
+                    );
                 }
             }
             return;
@@ -459,8 +495,7 @@ public class WeaponsSPMode implements Listener {
         String message = changeSection.getString("Message");
         if (message != null && !message.isEmpty()) {
             actionBarPauseMap.put(p.getUniqueId(), 40);
-            p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                    new TextComponent(colorize(message)));
+            actionBarManager.send(p, message, 40, AugActionBarManager.PRIORITY_MESSAGE);
         }
 
         sendTitleSubtitle(p, changeSection);
@@ -598,8 +633,7 @@ public class WeaponsSPMode implements Listener {
 
                 int current = getWeaponKillStreak(p, weaponTitle);
                 String display = buildStreakCounter(current, maxCount, leftSymbol, rightSymbol, barFormat);
-                p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                        new TextComponent(colorize(display)));
+                actionBarManager.send(p, display, 8, AugActionBarManager.PRIORITY_STREAK);
             }
         };
 
@@ -630,9 +664,7 @@ public class WeaponsSPMode implements Listener {
     }
 
     private void sendNotenoughActionbar(Player p, String message, int pauseTicks) {
-        actionBarPauseMap.put(p.getUniqueId(), pauseTicks);
-        p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                new TextComponent(ChatColor.translateAlternateColorCodes('&', message)));
+        actionBarManager.send(p, message, pauseTicks, AugActionBarManager.PRIORITY_MESSAGE);
     }
 
     // ===== ストリークイベント =====
@@ -679,7 +711,7 @@ public class WeaponsSPMode implements Listener {
                 }
                 String notEnoughChat = costSec.getString("Notenough_Saychat");
                 if (notEnoughChat != null && !notEnoughChat.isEmpty()) {
-                    p.sendMessage(ChatColor.translateAlternateColorCodes('&', notEnoughChat));
+                    p.sendMessage(notEnoughChat);
                 }
             }
         }
@@ -694,17 +726,39 @@ public class WeaponsSPMode implements Listener {
     }
 
     private boolean matchesAction(String requiredActions, String triggerAction, Player p) {
-        if (requiredActions.isEmpty()) return triggerAction == null;
-        for (String action : requiredActions.split(",")) {
-            switch (action.trim().toLowerCase()) {
-                case "offhand": if ("offhand".equals(triggerAction)) return true; break;
-                case "shift":   if ("shift".equals(triggerAction) || p.isSneaking()) return true; break;
-                case "jump":    if ("jump".equals(triggerAction) || jumpMap.getOrDefault(p.getUniqueId(), false)) return true; break;
+        if (requiredActions == null || requiredActions.isEmpty()) return triggerAction == null;
+
+        String normalized = requiredActions.trim().toLowerCase();
+        String[] required = normalized.split(",");
+
+        // 複数アクション指定 = AND条件（全部満たす必要あり）
+        if (required.length > 1) {
+            for (String action : required) {
+                switch (action.trim()) {
+                    case "offhand": if (!"offhand".equals(triggerAction) && !"shift_and_offhand".equals(triggerAction)) return false; break;
+                    case "shift":   if (!"shift".equals(triggerAction) && !"shift_and_offhand".equals(triggerAction) && !p.isSneaking()) return false; break;
+                    case "jump":    if (!jumpMap.getOrDefault(p.getUniqueId(), false)) return false; break;
+                    default: return false;
+                }
             }
+            return true;
+        }
+
+        // 単体アクション指定
+        switch (normalized) {
+            case "offhand": return "offhand".equals(triggerAction);
+            case "shift":   return "shift".equals(triggerAction);
+            case "jump":    return "jump".equals(triggerAction) || jumpMap.getOrDefault(p.getUniqueId(), false);
+            default:        return false;
+        }
+    }
+    private boolean hasOffhandTrigger(ConfigurationSection eventSection) {
+        for (ConfigurationSection costSec : getCostSections(eventSection)) {
+            String actions = costSec.getString("Trigger_Action", "").trim().toLowerCase();
+            if (actions.contains("offhand")) return true;
         }
         return false;
     }
-
     private void executeStreakEvent(Player p, String weaponTitle, ConfigurationSection eventConfig, boolean isMaxEvent, String triggerAction) {
         // 消費量の算出
         int consumeAmount;
@@ -763,14 +817,13 @@ public class WeaponsSPMode implements Listener {
         String actionbarMsg = eventConfig.getString("Actionbar");
         if (actionbarMsg != null && !actionbarMsg.isEmpty()) {
             actionBarPauseMap.put(p.getUniqueId(), 40);
-            p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                    new TextComponent(colorize(actionbarMsg)));
+            actionBarManager.send(p, actionbarMsg, 40, AugActionBarManager.PRIORITY_MESSAGE);
         }
 
         // チャット
         String chatMsg = eventConfig.getString("Saychat");
         if (chatMsg != null && !chatMsg.isEmpty()) {
-            p.sendMessage(ChatColor.translateAlternateColorCodes('&', chatMsg));
+            p.sendMessage(colorize(chatMsg));
         }
 
         // Title / Subtitle
@@ -842,8 +895,7 @@ public class WeaponsSPMode implements Listener {
                 String message = timedSection.getString("Message");
                 if (message != null && !message.isEmpty()) {
                     actionBarPauseMap.put(p.getUniqueId(), 40);
-                    p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                            new TextComponent(colorize(message)));
+                    actionBarManager.send(p, message, 40, AugActionBarManager.PRIORITY_MESSAGE);
                 }
 
                 this.cancel();
@@ -879,8 +931,7 @@ public class WeaponsSPMode implements Listener {
                     String endMsg = sec.getString("End_Action_Bar");
                     if (endMsg != null && !endMsg.isEmpty()) {
                         actionBarPauseMap.put(uuid, 30);
-                        p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                                new TextComponent(colorize(endMsg)));
+                        actionBarManager.send(p, endMsg, 30, AugActionBarManager.PRIORITY_BAR);
                     }
 
                     String endSound = sec.getString("End_Sound");
@@ -895,8 +946,12 @@ public class WeaponsSPMode implements Listener {
                 String actionStr = sec.getString("Action_Bar");
                 if (actionStr != null && !actionStr.isEmpty()) {
                     String bar = buildBar((double) i / ticks, sec);
-                    p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                            new TextComponent(colorize(actionStr.replace("{bar}", bar))));
+                    actionBarManager.send(
+                            p,
+                            actionStr.replace("{bar}", bar),
+                            8,
+                            AugActionBarManager.PRIORITY_BAR
+                    );
                 }
 
                 i += 2;
@@ -972,8 +1027,12 @@ public class WeaponsSPMode implements Listener {
                 String action = sec.getString("Action_Bar");
                 if (action != null && !action.isEmpty()) {
                     String bar = buildReturnCooldownBar((double) elapsed / ticks, sec);
-                    p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                            new TextComponent(colorize(action.replace("{bar}", bar))));
+                    actionBarManager.send(
+                            p,
+                            action.replace("{bar}", bar),
+                            8,
+                            AugActionBarManager.PRIORITY_BAR
+                    );
                 }
 
                 elapsed += 2;
@@ -981,8 +1040,7 @@ public class WeaponsSPMode implements Listener {
                     String end = sec.getString("End_Action_Bar");
                     if (end != null && !end.isEmpty()) {
                         actionBarPauseMap.put(uuid, 30);
-                        p.spigot().sendMessage(ChatMessageType.ACTION_BAR,
-                                new TextComponent(colorize(end)));
+                        actionBarManager.send(p, end, 30, AugActionBarManager.PRIORITY_BAR);
                     }
 
                     String endSound = sec.getString("End_Sound");
@@ -1007,7 +1065,7 @@ public class WeaponsSPMode implements Listener {
         String leftColor = sec.getString("Left_Color", "&a");
         String rightColor = sec.getString("Right_Color", "&7");
 
-        return colorize(leftColor + repeat(sym, left) + rightColor + repeat(sym, len - left));
+        return leftColor + repeat(sym, left) + rightColor + repeat(sym, len - left);
     }
 
     private String buildBar(double pct, ConfigurationSection sec) {
@@ -1015,9 +1073,9 @@ public class WeaponsSPMode implements Listener {
         int left = (int) (pct * len);
         String sym = sec.getString("Symbol", "|");
 
-        return colorize(sec.getString("Left_Color", "&a"))
+        return sec.getString("Left_Color", "&a")
                 + repeat(sym, left)
-                + colorize(sec.getString("Right_Color", "&c"))
+                + sec.getString("Right_Color", "&c")
                 + repeat(sym, len - left);
     }
 
@@ -1512,8 +1570,8 @@ public class WeaponsSPMode implements Listener {
         String title = config.getString("Title");
         String subtitle = config.getString("Subtitle");
         if (title != null || subtitle != null) {
-            String t  = title    != null ? ChatColor.translateAlternateColorCodes('&', title)    : "";
-            String st = subtitle != null ? ChatColor.translateAlternateColorCodes('&', subtitle) : "";
+            String t  = title    != null ? colorize(title)    : "";
+            String st = subtitle != null ? colorize(subtitle) : "";
             p.sendTitle(t, st, 10, 70, 20);
         }
     }

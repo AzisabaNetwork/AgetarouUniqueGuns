@@ -7,6 +7,7 @@ depend:
   - CrackShotPlus
   - LeonCSAddon
   - LeonGunWar
+  - ProtocolLib
 permisssions:
   agetarouuniqueguns.help:
     description: AgetarouUniqueGuns help
