@@ -204,19 +204,22 @@ public class WeaponsSPMode implements Listener {
         ConfigurationSection eventSection = killStreakSection.getConfigurationSection("Streak_Event");
         if (eventSection == null || !eventSection.getBoolean("Enable", false)) return;
 
-        String triggerAction = p.isSneaking() ? "shift_and_offhand" : "offhand";
+        if (!hasOffhandTrigger(eventSection)) return;
 
-        if (!hasTriggerAction(eventSection, "offhand") && !hasTriggerAction(eventSection, "shift,offhand")) return;
+        String triggerAction = p.isSneaking() ? "shift_and_offhand" : "offhand";
 
         int currentStreak = getWeaponKillStreak(p, weaponTitle);
         checkStreakEvents(p, weaponTitle, currentStreak, triggerAction);
     }
     private boolean hasTriggerAction(ConfigurationSection eventSection, String targetAction) {
         for (ConfigurationSection costSec : getCostSections(eventSection)) {
-            String actions = costSec.getString("Trigger_Action", "");
-            for (String action : actions.split(",")) {
-                if (action.trim().equalsIgnoreCase(targetAction)) {
-                    return true;
+            String actions = costSec.getString("Trigger_Action", "").trim().toLowerCase();
+            // 完全一致で先に確認
+            if (actions.equals(targetAction.toLowerCase())) return true;
+            // 単体アクションの場合のみsplitして比較
+            if (!targetAction.contains(",")) {
+                for (String action : actions.split(",")) {
+                    if (action.trim().equalsIgnoreCase(targetAction)) return true;
                 }
             }
         }
@@ -723,25 +726,39 @@ public class WeaponsSPMode implements Listener {
     }
 
     private boolean matchesAction(String requiredActions, String triggerAction, Player p) {
-        if (requiredActions.isEmpty()) return triggerAction == null;
+        if (requiredActions == null || requiredActions.isEmpty()) return triggerAction == null;
 
         String normalized = requiredActions.trim().toLowerCase();
+        String[] required = normalized.split(",");
 
-        // shift,offhand または offhand,shift は同時押し専用
-        if (normalized.equals("shift,offhand") || normalized.equals("offhand,shift")) {
-            return "shift_and_offhand".equals(triggerAction);
+        // 複数アクション指定 = AND条件（全部満たす必要あり）
+        if (required.length > 1) {
+            for (String action : required) {
+                switch (action.trim()) {
+                    case "offhand": if (!"offhand".equals(triggerAction) && !"shift_and_offhand".equals(triggerAction)) return false; break;
+                    case "shift":   if (!"shift".equals(triggerAction) && !"shift_and_offhand".equals(triggerAction) && !p.isSneaking()) return false; break;
+                    case "jump":    if (!jumpMap.getOrDefault(p.getUniqueId(), false)) return false; break;
+                    default: return false;
+                }
+            }
+            return true;
         }
 
-        for (String action : normalized.split(",")) {
-            switch (action.trim()) {
-                case "offhand": if ("offhand".equals(triggerAction) || "shift_and_offhand".equals(triggerAction)) return true; break;
-                case "shift":   if ("shift".equals(triggerAction) || "shift_and_offhand".equals(triggerAction) || p.isSneaking()) return true; break;
-                case "jump":    if ("jump".equals(triggerAction) || jumpMap.getOrDefault(p.getUniqueId(), false)) return true; break;
-            }
+        // 単体アクション指定
+        switch (normalized) {
+            case "offhand": return "offhand".equals(triggerAction);
+            case "shift":   return "shift".equals(triggerAction);
+            case "jump":    return "jump".equals(triggerAction) || jumpMap.getOrDefault(p.getUniqueId(), false);
+            default:        return false;
+        }
+    }
+    private boolean hasOffhandTrigger(ConfigurationSection eventSection) {
+        for (ConfigurationSection costSec : getCostSections(eventSection)) {
+            String actions = costSec.getString("Trigger_Action", "").trim().toLowerCase();
+            if (actions.contains("offhand")) return true;
         }
         return false;
     }
-
     private void executeStreakEvent(Player p, String weaponTitle, ConfigurationSection eventConfig, boolean isMaxEvent, String triggerAction) {
         // 消費量の算出
         int consumeAmount;
