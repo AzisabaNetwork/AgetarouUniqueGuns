@@ -34,12 +34,17 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.regex.Matcher;
+import org.bukkit.NamespacedKey;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
+
+import java.util.UUID;
 
 public class WeaponsSPMode implements Listener {
 
     private final JavaPlugin plugin;
     private final CSUtility cs = new CSUtility();
+    private final NamespacedKey weaponInstanceKey;
 
     // クールダウン管理
     private final Map<String, Long> cooldownMap = new HashMap<>();
@@ -72,6 +77,7 @@ public class WeaponsSPMode implements Listener {
 
     public WeaponsSPMode(JavaPlugin plugin) {
         this.plugin = plugin;
+        this.weaponInstanceKey = new NamespacedKey(plugin, "weapon_instance");
         this.actionBarManager = new AugActionBarManager(plugin, WeaponsSPMode::colorize);
     }
 
@@ -86,6 +92,7 @@ public class WeaponsSPMode implements Listener {
         text = ChatColor.translateAlternateColorCodes('&', text);
         return text;
     }
+
 
     private static String bytesToHex(byte[] bytes) {
         StringBuilder sb = new StringBuilder();
@@ -502,8 +509,8 @@ public class WeaponsSPMode implements Listener {
     }
 
     // ===== KillStreak =====
-
     private void addWeaponKillStreak(Player p, String weaponTitle) {
+        ItemStack item = p.getInventory().getItemInMainHand();
         UUID uuid = p.getUniqueId();
         Map<String, Integer> playerStreaks = weaponKillStreakMap.computeIfAbsent(uuid, k -> new HashMap<>());
 
@@ -512,7 +519,7 @@ public class WeaponsSPMode implements Listener {
         ConfigurationSection ks = root.getConfigurationSection("KillStreak");
         if (ks == null || !ks.getBoolean("Enable", false)) return;
 
-        String key = getStreakKey(weaponTitle);
+        String key = getStreakStorageKey(item, weaponTitle);
         int current = playerStreaks.getOrDefault(key, 0);
         int max = ks.getInt("Kill_Count", 5);
         boolean ignoreLimit = ks.getBoolean("Ignore_Limit", false);
@@ -525,6 +532,28 @@ public class WeaponsSPMode implements Listener {
         }
     }
 
+    private int getWeaponKillStreak(Player p, String weaponTitle) {
+        Map<String, Integer> streaks = weaponKillStreakMap.get(p.getUniqueId());
+        if (streaks == null) return 0;
+
+        ItemStack item = p.getInventory().getItemInMainHand();
+        return streaks.getOrDefault(getStreakStorageKey(item, weaponTitle), 0);
+    }
+
+    private boolean consumeWeaponKillStreak(Player p, String weaponTitle, int amount) {
+        Map<String, Integer> streaks = weaponKillStreakMap.get(p.getUniqueId());
+        if (streaks == null) return false;
+
+        ItemStack item = p.getInventory().getItemInMainHand();
+        String key = getStreakStorageKey(item, weaponTitle);
+        int current = streaks.getOrDefault(key, 0);
+        if (current < amount) return false;
+
+        streaks.put(key, current - amount);
+        return true;
+    }
+
+
     private String getStreakKey(String weaponTitle) {
         ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
         if (root == null) return weaponTitle;
@@ -534,20 +563,56 @@ public class WeaponsSPMode implements Listener {
         return (shareKey != null && !shareKey.isEmpty()) ? shareKey : weaponTitle;
     }
 
-    private int getWeaponKillStreak(Player p, String weaponTitle) {
-        Map<String, Integer> streaks = weaponKillStreakMap.get(p.getUniqueId());
-        return streaks != null ? streaks.getOrDefault(getStreakKey(weaponTitle), 0) : 0;
+    private String ensureWeaponInstanceId(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) {
+            return null;
+        }
+
+        String title = cs.getWeaponTitle(item);
+        if (title == null) {
+            return null;
+        }
+
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) {
+            return null;
+        }
+
+        String id = meta.getPersistentDataContainer().get(weaponInstanceKey, PersistentDataType.STRING);
+        if (id == null || id.isEmpty()) {
+            id = UUID.randomUUID().toString();
+            meta.getPersistentDataContainer().set(weaponInstanceKey, PersistentDataType.STRING, id);
+            item.setItemMeta(meta);
+        }
+
+        return id;
     }
 
-    private boolean consumeWeaponKillStreak(Player p, String weaponTitle, int amount) {
-        Map<String, Integer> streaks = weaponKillStreakMap.get(p.getUniqueId());
-        if (streaks == null) return false;
-        String key = getStreakKey(weaponTitle);
-        int current = streaks.getOrDefault(key, 0);
-        if (current < amount) return false;
-        streaks.put(key, current - amount);
-        return true;
+    private void setWeaponInstanceId(ItemStack item, String instanceId) {
+        if (item == null || item.getType() == Material.AIR || instanceId == null || instanceId.isEmpty()) {
+            return;
+        }
+
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) {
+            return;
+        }
+
+        meta.getPersistentDataContainer().set(weaponInstanceKey, PersistentDataType.STRING, instanceId);
+        item.setItemMeta(meta);
     }
+
+    private String getStreakStorageKey(ItemStack item, String weaponTitle) {
+        String instanceId = ensureWeaponInstanceId(item);
+        if (instanceId == null) {
+            return getStreakKey(weaponTitle);
+        }
+        return instanceId + ":" + getStreakKey(weaponTitle);
+    }
+
+
+
+
 
     private void handleDeathStreakReset(Player p) {
         Map<String, Integer> streaks = weaponKillStreakMap.get(p.getUniqueId());
@@ -785,8 +850,15 @@ public class WeaponsSPMode implements Listener {
 
             if (eventConfig.getBoolean("Takeover_Streak", false)) {
                 int remaining = getWeaponKillStreak(p, weaponTitle);
+                weaponKillStreakMap.computeIfAbsent(uuid, k -> new HashMap<>());
+                ItemStack item = p.getInventory().getItemInMainHand();
+                String instanceKey = ensureWeaponInstanceId(item);
+                String storageKey = instanceKey != null
+                        ? instanceKey + ":" + getStreakKey(changeWeapon)
+                        : getStreakKey(changeWeapon);
+
                 weaponKillStreakMap.computeIfAbsent(uuid, k -> new HashMap<>())
-                        .put(getStreakKey(changeWeapon), remaining);
+                        .put(storageKey, remaining);
             }
 
             boolean takeoverAmmo = eventConfig.getBoolean("Takeover_Ammo", false);
@@ -1369,7 +1441,60 @@ public class WeaponsSPMode implements Listener {
     }
 
     private void replaceWeapon(Player p, String weaponName) {
-        replaceWeapon(p, null, weaponName, false);
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!p.isOnline()) return;
+
+                PlayerInventory inv = p.getInventory();
+                int replaceSlot = inv.getHeldItemSlot();
+                ItemStack oldItem = inv.getItem(replaceSlot);
+                String oldInstanceId = ensureWeaponInstanceId(oldItem);
+
+                inv.setItem(replaceSlot, null);
+                cs.giveWeapon(p, weaponName, 1);
+
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        if (!p.isOnline()) return;
+
+                        ItemStack found = null;
+                        int foundSlot = -1;
+
+                        for (int i = 0; i < inv.getSize(); i++) {
+                            ItemStack item = inv.getItem(i);
+                            if (item != null && weaponName.equals(cs.getWeaponTitle(item))) {
+                                found = item;
+                                foundSlot = i;
+                                break;
+                            }
+                        }
+
+                        if (found != null) {
+                            if (found.getAmount() > 1) {
+                                found.setAmount(found.getAmount() - 1);
+                                ItemStack single = found.clone();
+                                single.setAmount(1);
+                                setWeaponInstanceId(single, oldInstanceId != null ? oldInstanceId : UUID.randomUUID().toString());
+                                inv.setItem(replaceSlot, single);
+                            } else {
+                                if (foundSlot != replaceSlot) {
+                                    inv.setItem(foundSlot, null);
+                                }
+                                setWeaponInstanceId(found, oldInstanceId != null ? oldInstanceId : UUID.randomUUID().toString());
+                                inv.setItem(replaceSlot, found);
+                            }
+
+                            inv.setHeldItemSlot(replaceSlot);
+                        }
+
+                        startStreakCounter(p, weaponName);
+                        startTimedWeaponChange(p, weaponName);
+                    }
+                }.runTaskLater(plugin, 1L);
+            }
+        }.runTaskLater(plugin, 1L);
     }
 
     private void replaceWeapon(Player p, String expectedWeapon, String targetWeapon) {
