@@ -1554,9 +1554,17 @@ public class WeaponsSPMode implements Listener {
         if (!p.isOnline()) return;
 
         PlayerInventory inv = p.getInventory();
-
         ItemStack beforeTarget = inv.getItem(targetSlot);
         inv.setItem(targetSlot, null);
+
+        // giveWeapon呼び出し前に存在する同名武器のスロット番号をスナップショットとして記録
+        java.util.Set<Integer> slotsBefore = new java.util.HashSet<>();
+        for (int i = 0; i < inv.getSize(); i++) {
+            ItemStack it = inv.getItem(i);
+            if (it != null && weaponName.equals(cs.getWeaponTitle(it))) {
+                slotsBefore.add(i);
+            }
+        }
 
         cs.giveWeapon(p, weaponName, 1);
 
@@ -1565,20 +1573,30 @@ public class WeaponsSPMode implements Listener {
             public void run() {
                 if (!p.isOnline()) return;
 
-                int generatedSlot = findWeaponSlot(inv, weaponName);
+                // スナップショットに含まれないスロット = giveWeaponで新たに生成されたもの
+                int generatedSlot = -1;
+                for (int i = 0; i < inv.getSize(); i++) {
+                    ItemStack item = inv.getItem(i);
+                    if (item != null
+                            && weaponName.equals(cs.getWeaponTitle(item))
+                            && !slotsBefore.contains(i)) {
+                        generatedSlot = i;
+                        break;
+                    }
+                }
+
                 if (generatedSlot < 0) {
-                    if (inv.getItem(targetSlot) == null || inv.getItem(targetSlot).getType() == Material.AIR) {
+                    if (inv.getItem(targetSlot) == null
+                            || inv.getItem(targetSlot).getType() == Material.AIR) {
                         inv.setItem(targetSlot, beforeTarget);
                     }
                     return;
                 }
 
                 ItemStack generated = inv.getItem(generatedSlot);
-
                 if (generatedSlot != targetSlot) {
                     inv.setItem(generatedSlot, null);
                 }
-
                 inv.setItem(targetSlot, generated);
                 applyWeaponAmmoToSlot(p, weaponName, targetSlot, takeoverAmmo);
 
