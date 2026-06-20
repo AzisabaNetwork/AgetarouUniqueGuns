@@ -1195,6 +1195,14 @@ public class WeaponsSPMode implements Listener {
 
                 inv.setItem(slot, null);
                 String restoreWeapon = getReturnBaseWeapon(changedWeapon, originalWeapon);
+
+                // スナップショット取得
+                java.util.Set<Integer> slotsBefore = new java.util.HashSet<>();
+                for (int i = 0; i < inv.getSize(); i++) {
+                    ItemStack it = inv.getItem(i);
+                    if (it != null && restoreWeapon.equals(cs.getWeaponTitle(it))) slotsBefore.add(i);
+                }
+
                 cs.giveWeapon(p, restoreWeapon, 1);
 
                 new BukkitRunnable() {
@@ -1202,7 +1210,18 @@ public class WeaponsSPMode implements Listener {
                     public void run() {
                         if (!p.isOnline()) return;
 
-                        int generatedSlot = findWeaponSlot(inv, restoreWeapon);
+                        // 新規生成スロットのみを対象に
+                        int generatedSlot = -1;
+                        for (int i = 0; i < inv.getSize(); i++) {
+                            ItemStack item = inv.getItem(i);
+                            if (item != null
+                                    && restoreWeapon.equals(cs.getWeaponTitle(item))
+                                    && !slotsBefore.contains(i)) {
+                                generatedSlot = i;
+                                break;
+                            }
+                        }
+
                         if (generatedSlot < 0) return;
 
                         ItemStack generated = inv.getItem(generatedSlot);
@@ -1314,13 +1333,21 @@ public class WeaponsSPMode implements Listener {
 
                 ItemStack current = p.getInventory().getItemInOffHand();
                 String currentTitle = cs.getWeaponTitle(current);
-
                 if (!expectedWeapon.equals(currentTitle)) return;
 
                 int ammo = takeoverAmmo ? getWeaponAmmoFromItem(p, expectedWeapon, current) : -1;
                 ItemStack beforeOffhand = current.clone();
 
                 p.getInventory().setItemInOffHand(null);
+
+                // スナップショット取得
+                java.util.Set<Integer> slotsBefore = new java.util.HashSet<>();
+                PlayerInventory inv = p.getInventory();
+                for (int i = 0; i < inv.getSize(); i++) {
+                    ItemStack it = inv.getItem(i);
+                    if (it != null && targetWeapon.equals(cs.getWeaponTitle(it))) slotsBefore.add(i);
+                }
+
                 cs.giveWeapon(p, targetWeapon, 1);
 
                 new BukkitRunnable() {
@@ -1328,8 +1355,17 @@ public class WeaponsSPMode implements Listener {
                     public void run() {
                         if (!p.isOnline()) return;
 
-                        PlayerInventory inv = p.getInventory();
-                        int generatedSlot = findWeaponSlot(inv, targetWeapon);
+                        // 新規生成スロットのみを対象に
+                        int generatedSlot = -1;
+                        for (int i = 0; i < inv.getSize(); i++) {
+                            ItemStack item = inv.getItem(i);
+                            if (item != null
+                                    && targetWeapon.equals(cs.getWeaponTitle(item))
+                                    && !slotsBefore.contains(i)) {
+                                generatedSlot = i;
+                                break;
+                            }
+                        }
 
                         if (generatedSlot < 0) {
                             ItemStack offhandNow = inv.getItemInOffHand();
@@ -1341,7 +1377,6 @@ public class WeaponsSPMode implements Listener {
 
                         ItemStack generated = inv.getItem(generatedSlot);
                         inv.setItem(generatedSlot, null);
-
                         inv.setItemInOffHand(generated);
                         applyWeaponAmmoToOffHand(p, targetWeapon, ammo);
                     }
@@ -1383,6 +1418,15 @@ public class WeaponsSPMode implements Listener {
                 ItemStack beforeCursor = cursor.clone();
 
                 p.setItemOnCursor(null);
+
+                // スナップショット取得
+                PlayerInventory inv = p.getInventory();
+                java.util.Set<Integer> slotsBefore = new java.util.HashSet<>();
+                for (int i = 0; i < inv.getSize(); i++) {
+                    ItemStack it = inv.getItem(i);
+                    if (it != null && targetWeapon.equals(cs.getWeaponTitle(it))) slotsBefore.add(i);
+                }
+
                 cs.giveWeapon(p, targetWeapon, 1);
 
                 new BukkitRunnable() {
@@ -1390,8 +1434,17 @@ public class WeaponsSPMode implements Listener {
                     public void run() {
                         if (!p.isOnline()) return;
 
-                        PlayerInventory inv = p.getInventory();
-                        int generatedSlot = findWeaponSlot(inv, targetWeapon);
+                        // 新規生成スロットのみを対象に
+                        int generatedSlot = -1;
+                        for (int i = 0; i < inv.getSize(); i++) {
+                            ItemStack item = inv.getItem(i);
+                            if (item != null
+                                    && targetWeapon.equals(cs.getWeaponTitle(item))
+                                    && !slotsBefore.contains(i)) {
+                                generatedSlot = i;
+                                break;
+                            }
+                        }
 
                         if (generatedSlot < 0) {
                             ItemStack currentCursor = p.getItemOnCursor();
@@ -1403,7 +1456,6 @@ public class WeaponsSPMode implements Listener {
 
                         ItemStack generated = inv.getItem(generatedSlot);
                         inv.setItem(generatedSlot, null);
-
                         p.setItemOnCursor(generated);
                         applyWeaponAmmoToCursor(p, targetWeapon, ammo);
                     }
