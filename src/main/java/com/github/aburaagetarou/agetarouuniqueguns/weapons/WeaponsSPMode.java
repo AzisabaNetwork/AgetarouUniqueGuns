@@ -32,13 +32,13 @@ import org.bukkit.potion.PotionEffectType;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.event.player.PlayerJoinEvent;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.bukkit.NamespacedKey;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
-
-import java.util.UUID;
 
 public class WeaponsSPMode implements Listener {
 
@@ -51,6 +51,9 @@ public class WeaponsSPMode implements Listener {
 
     // キルストリーク管理（streakKey → count）
     private final Map<UUID, Map<String, Integer>> weaponKillStreakMap = new HashMap<>();
+
+    // 武器変更中の個体管理（player UUID → weapon instance IDs）
+    private final Map<UUID, Set<String>> changingWeaponInstances = new HashMap<>();
 
     private final Map<UUID, String> originalWeaponMap = new HashMap<>();
     private final Map<UUID, String> changedWeaponMap = new HashMap<>();
@@ -337,6 +340,7 @@ public class WeaponsSPMode implements Listener {
         killStreakChangedWeaponMap.remove(uuid);
         killStreakOriginalWeaponMap.remove(uuid);
         actionBarPauseMap.remove(uuid);
+        changingWeaponInstances.remove(uuid);
 
         BukkitRunnable counterTask = counterTaskMap.remove(uuid);
         if (counterTask != null) counterTask.cancel();
@@ -553,6 +557,49 @@ public class WeaponsSPMode implements Listener {
         return true;
     }
 
+    /**
+     * Streak_Event.Add_Weapon_Streak により、現在の武器個体へ指定武器のストリークを加算する。
+     * 設定例:
+     * Add_Weapon_Streak:
+     *   Weapon: TargetWeapon
+     *   Amount: 1
+     */
+    private void addConfiguredWeaponStreak(Player p, String sourceWeapon,
+                                           ConfigurationSection eventConfig) {
+        ConfigurationSection addSection = eventConfig.getConfigurationSection("Add_Weapon_Streak");
+        if (addSection == null) return;
+
+        String targetWeapon = addSection.getString("Weapon");
+        int amount = addSection.getInt("Amount", 1);
+        if (targetWeapon == null || targetWeapon.isEmpty() || amount <= 0) return;
+
+        ItemStack sourceItem = p.getInventory().getItemInMainHand();
+        if (sourceItem == null || !sourceWeapon.equals(cs.getWeaponTitle(sourceItem))) return;
+
+        String instanceId = ensureWeaponInstanceId(sourceItem);
+        if (instanceId == null) return;
+
+        ConfigurationSection targetRoot = WeaponConfig.getWeaponConfig(targetWeapon);
+        if (targetRoot == null) return;
+        ConfigurationSection targetStreak = targetRoot.getConfigurationSection("KillStreak");
+        if (targetStreak == null || !targetStreak.getBoolean("Enable", false)) return;
+
+        String storageKey = instanceId + ":" + getStreakKey(targetWeapon);
+        Map<String, Integer> playerStreaks = weaponKillStreakMap.computeIfAbsent(
+                p.getUniqueId(), ignored -> new HashMap<>());
+
+        int current = playerStreaks.getOrDefault(storageKey, 0);
+        int updated = current + amount;
+        if (!targetStreak.getBoolean("Ignore_Limit", false)) {
+            updated = Math.min(updated, targetStreak.getInt("Kill_Count", 5));
+        }
+        playerStreaks.put(storageKey, updated);
+
+        if (sourceWeapon.equals(targetWeapon)) {
+            startStreakCounter(p, sourceWeapon);
+        }
+    }
+
 
     private String getStreakKey(String weaponTitle) {
         ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
@@ -600,6 +647,109 @@ public class WeaponsSPMode implements Listener {
 
         meta.getPersistentDataContainer().set(weaponInstanceKey, PersistentDataType.STRING, instanceId);
         item.setItemMeta(meta);
+    }
+
+    private boolean beginWeaponChange(Player p, String instanceId) {
+        if (instanceId == null || instanceId.isEmpty()) return false;
+
+        Set<String> changingInstances = changingWeaponInstances.computeIfAbsent(
+                p.getUniqueId(), ignored -> new HashSet<>());
+        return changingInstances.add(instanceId);
+    }
+
+    private void finishWeaponChange(Player p, String instanceId) {
+        if (instanceId == null || instanceId.isEmpty()) return;
+
+        UUID uuid = p.getUniqueId();
+        Set<String> changingInstances = changingWeaponInstances.get(uuid);
+        if (changingInstances == null) return;
+
+        changingInstances.remove(instanceId);
+        if (changingInstances.isEmpty()) {
+            changingWeaponInstances.remove(uuid);
+        }
+    }
+
+    private void restoreItemInSlot(Player p, int slot, ItemStack originalItem) {
+        if (originalItem == null || originalItem.getType() == Material.AIR) return;
+
+        PlayerInventory inv = p.getInventory();
+        ItemStack current = inv.getItem(slot);
+        if (current == null || current.getType() == Material.AIR) {
+            inv.setItem(slot, originalItem.clone());
+            return;
+        }
+
+        addOrDropItem(p, originalItem);
+    }
+
+    private void restoreItemInOffHand(Player p, ItemStack originalItem) {
+        if (originalItem == null || originalItem.getType() == Material.AIR) return;
+
+        ItemStack current = p.getInventory().getItemInOffHand();
+        if (current == null || current.getType() == Material.AIR) {
+            p.getInventory().setItemInOffHand(originalItem.clone());
+            return;
+        }
+
+        addOrDropItem(p, originalItem);
+    }
+
+    private void restoreItemOnCursor(Player p, ItemStack originalItem) {
+        if (originalItem == null || originalItem.getType() == Material.AIR) return;
+
+        ItemStack current = p.getItemOnCursor();
+        if (current == null || current.getType() == Material.AIR) {
+            p.setItemOnCursor(originalItem.clone());
+            return;
+        }
+
+        addOrDropItem(p, originalItem);
+    }
+
+    private void addOrDropItem(Player p, ItemStack item) {
+        Map<Integer, ItemStack> leftovers = p.getInventory().addItem(item.clone());
+        for (ItemStack leftover : leftovers.values()) {
+            p.getWorld().dropItemNaturally(p.getLocation(), leftover);
+        }
+    }
+
+    private Map<Integer, Integer> snapshotWeaponAmounts(PlayerInventory inv, String weaponName) {
+        Map<Integer, Integer> amounts = new HashMap<>();
+        for (int i = 0; i < inv.getSize(); i++) {
+            ItemStack item = inv.getItem(i);
+            if (item != null && weaponName.equals(cs.getWeaponTitle(item))) {
+                amounts.put(i, item.getAmount());
+            }
+        }
+        return amounts;
+    }
+
+    /**
+     * giveWeapon 前後の個数差から、新たに生成された武器1個をインベントリから取り出す。
+     * 同名武器へスタックされた場合も識別できる。
+     */
+    private ItemStack takeGeneratedWeapon(PlayerInventory inv, String weaponName,
+                                          Map<Integer, Integer> amountsBefore) {
+        for (int i = 0; i < inv.getSize(); i++) {
+            ItemStack item = inv.getItem(i);
+            if (item == null || !weaponName.equals(cs.getWeaponTitle(item))) continue;
+
+            int beforeAmount = amountsBefore.getOrDefault(i, 0);
+            if (item.getAmount() <= beforeAmount) continue;
+
+            ItemStack generated = item.clone();
+            generated.setAmount(1);
+
+            if (item.getAmount() == 1) {
+                inv.setItem(i, null);
+            } else {
+                item.setAmount(item.getAmount() - 1);
+                inv.setItem(i, item);
+            }
+            return generated;
+        }
+        return null;
     }
 
     private String getStreakStorageKey(ItemStack item, String weaponTitle) {
@@ -837,6 +987,7 @@ public class WeaponsSPMode implements Listener {
         if (!consumeWeaponKillStreak(p, weaponTitle, consumeAmount)) return;
 
         applyStreakEffects(p, eventConfig);
+        addConfiguredWeaponStreak(p, weaponTitle, eventConfig);
 
         // 武器変更
         String changeWeapon = eventConfig.getString("Change_Weapons");
@@ -1193,49 +1344,53 @@ public class WeaponsSPMode implements Listener {
                 int slot = findWeaponSlot(inv, changedWeapon);
                 if (slot < 0) return;
 
+                ItemStack currentItem = inv.getItem(slot);
+                if (currentItem == null) return;
+                ItemStack originalItem = currentItem.clone();
+
+                String instanceId = ensureWeaponInstanceId(inv.getItem(slot));
+                if (!beginWeaponChange(p, instanceId)) return;
+
                 inv.setItem(slot, null);
                 String restoreWeapon = getReturnBaseWeapon(changedWeapon, originalWeapon);
+                Map<Integer, Integer> amountsBefore = snapshotWeaponAmounts(inv, restoreWeapon);
 
-                // スナップショット取得
-                java.util.Set<Integer> slotsBefore = new java.util.HashSet<>();
-                for (int i = 0; i < inv.getSize(); i++) {
-                    ItemStack it = inv.getItem(i);
-                    if (it != null && restoreWeapon.equals(cs.getWeaponTitle(it))) slotsBefore.add(i);
+                try {
+                    cs.giveWeapon(p, restoreWeapon, 1);
+                } catch (Exception ex) {
+                    restoreItemInSlot(p, slot, originalItem);
+                    finishWeaponChange(p, instanceId);
+                    plugin.getLogger().warning("Failed to restore weapon " + restoreWeapon
+                            + " for " + p.getName() + ": " + ex.getMessage());
+                    return;
                 }
-
-                cs.giveWeapon(p, restoreWeapon, 1);
 
                 new BukkitRunnable() {
                     @Override
                     public void run() {
-                        if (!p.isOnline()) return;
-
-                        // 新規生成スロットのみを対象に
-                        int generatedSlot = -1;
-                        for (int i = 0; i < inv.getSize(); i++) {
-                            ItemStack item = inv.getItem(i);
-                            if (item != null
-                                    && restoreWeapon.equals(cs.getWeaponTitle(item))
-                                    && !slotsBefore.contains(i)) {
-                                generatedSlot = i;
-                                break;
-                            }
-                        }
-
-                        if (generatedSlot < 0) return;
-
-                        ItemStack generated = inv.getItem(generatedSlot);
-                        ItemStack current = inv.getItem(slot);
-
-                        if (current != null && current.getType() != Material.AIR) {
-                            if (generatedSlot != slot) inv.setItem(generatedSlot, null);
+                        if (!p.isOnline()) {
+                            finishWeaponChange(p, instanceId);
                             return;
                         }
 
-                        if (generatedSlot != slot) {
-                            inv.setItem(slot, generated);
-                            inv.setItem(generatedSlot, null);
+                        ItemStack generated = takeGeneratedWeapon(inv, restoreWeapon, amountsBefore);
+                        if (generated == null) {
+                            restoreItemInSlot(p, slot, originalItem);
+                            finishWeaponChange(p, instanceId);
+                            return;
                         }
+
+                        ItemStack current = inv.getItem(slot);
+
+                        if (current != null && current.getType() != Material.AIR) {
+                            restoreItemInSlot(p, slot, originalItem);
+                            finishWeaponChange(p, instanceId);
+                            return;
+                        }
+
+                        setWeaponInstanceId(generated, instanceId);
+                        inv.setItem(slot, generated);
+                        finishWeaponChange(p, instanceId);
                     }
                 }.runTaskLater(plugin, 1L);
             }
@@ -1337,48 +1492,50 @@ public class WeaponsSPMode implements Listener {
 
                 int ammo = takeoverAmmo ? getWeaponAmmoFromItem(p, expectedWeapon, current) : -1;
                 ItemStack beforeOffhand = current.clone();
+                String instanceId = ensureWeaponInstanceId(current);
+                if (!beginWeaponChange(p, instanceId)) return;
 
                 p.getInventory().setItemInOffHand(null);
 
-                // スナップショット取得
-                java.util.Set<Integer> slotsBefore = new java.util.HashSet<>();
                 PlayerInventory inv = p.getInventory();
-                for (int i = 0; i < inv.getSize(); i++) {
-                    ItemStack it = inv.getItem(i);
-                    if (it != null && targetWeapon.equals(cs.getWeaponTitle(it))) slotsBefore.add(i);
-                }
+                Map<Integer, Integer> amountsBefore = snapshotWeaponAmounts(inv, targetWeapon);
 
-                cs.giveWeapon(p, targetWeapon, 1);
+                try {
+                    cs.giveWeapon(p, targetWeapon, 1);
+                } catch (Exception ex) {
+                    restoreItemInOffHand(p, beforeOffhand);
+                    finishWeaponChange(p, instanceId);
+                    plugin.getLogger().warning("Failed to change offhand weapon to " + targetWeapon
+                            + " for " + p.getName() + ": " + ex.getMessage());
+                    return;
+                }
 
                 new BukkitRunnable() {
                     @Override
                     public void run() {
-                        if (!p.isOnline()) return;
-
-                        // 新規生成スロットのみを対象に
-                        int generatedSlot = -1;
-                        for (int i = 0; i < inv.getSize(); i++) {
-                            ItemStack item = inv.getItem(i);
-                            if (item != null
-                                    && targetWeapon.equals(cs.getWeaponTitle(item))
-                                    && !slotsBefore.contains(i)) {
-                                generatedSlot = i;
-                                break;
-                            }
-                        }
-
-                        if (generatedSlot < 0) {
-                            ItemStack offhandNow = inv.getItemInOffHand();
-                            if (offhandNow == null || offhandNow.getType() == Material.AIR) {
-                                inv.setItemInOffHand(beforeOffhand);
-                            }
+                        if (!p.isOnline()) {
+                            finishWeaponChange(p, instanceId);
                             return;
                         }
 
-                        ItemStack generated = inv.getItem(generatedSlot);
-                        inv.setItem(generatedSlot, null);
+                        ItemStack generated = takeGeneratedWeapon(inv, targetWeapon, amountsBefore);
+                        if (generated == null) {
+                            restoreItemInOffHand(p, beforeOffhand);
+                            finishWeaponChange(p, instanceId);
+                            return;
+                        }
+
+                        ItemStack offhandNow = inv.getItemInOffHand();
+                        if (offhandNow != null && offhandNow.getType() != Material.AIR) {
+                            restoreItemInOffHand(p, beforeOffhand);
+                            finishWeaponChange(p, instanceId);
+                            return;
+                        }
+
+                        setWeaponInstanceId(generated, instanceId);
                         inv.setItemInOffHand(generated);
                         applyWeaponAmmoToOffHand(p, targetWeapon, ammo);
+                        finishWeaponChange(p, instanceId);
                     }
                 }.runTaskLater(plugin, 1L);
             }
@@ -1416,48 +1573,50 @@ public class WeaponsSPMode implements Listener {
 
                 int ammo = takeoverAmmo ? getWeaponAmmoFromItem(p, expectedWeapon, cursor) : -1;
                 ItemStack beforeCursor = cursor.clone();
+                String instanceId = ensureWeaponInstanceId(cursor);
+                if (!beginWeaponChange(p, instanceId)) return;
 
                 p.setItemOnCursor(null);
 
-                // スナップショット取得
                 PlayerInventory inv = p.getInventory();
-                java.util.Set<Integer> slotsBefore = new java.util.HashSet<>();
-                for (int i = 0; i < inv.getSize(); i++) {
-                    ItemStack it = inv.getItem(i);
-                    if (it != null && targetWeapon.equals(cs.getWeaponTitle(it))) slotsBefore.add(i);
-                }
+                Map<Integer, Integer> amountsBefore = snapshotWeaponAmounts(inv, targetWeapon);
 
-                cs.giveWeapon(p, targetWeapon, 1);
+                try {
+                    cs.giveWeapon(p, targetWeapon, 1);
+                } catch (Exception ex) {
+                    restoreItemOnCursor(p, beforeCursor);
+                    finishWeaponChange(p, instanceId);
+                    plugin.getLogger().warning("Failed to change cursor weapon to " + targetWeapon
+                            + " for " + p.getName() + ": " + ex.getMessage());
+                    return;
+                }
 
                 new BukkitRunnable() {
                     @Override
                     public void run() {
-                        if (!p.isOnline()) return;
-
-                        // 新規生成スロットのみを対象に
-                        int generatedSlot = -1;
-                        for (int i = 0; i < inv.getSize(); i++) {
-                            ItemStack item = inv.getItem(i);
-                            if (item != null
-                                    && targetWeapon.equals(cs.getWeaponTitle(item))
-                                    && !slotsBefore.contains(i)) {
-                                generatedSlot = i;
-                                break;
-                            }
-                        }
-
-                        if (generatedSlot < 0) {
-                            ItemStack currentCursor = p.getItemOnCursor();
-                            if (currentCursor == null || currentCursor.getType() == Material.AIR) {
-                                p.setItemOnCursor(beforeCursor);
-                            }
+                        if (!p.isOnline()) {
+                            finishWeaponChange(p, instanceId);
                             return;
                         }
 
-                        ItemStack generated = inv.getItem(generatedSlot);
-                        inv.setItem(generatedSlot, null);
+                        ItemStack generated = takeGeneratedWeapon(inv, targetWeapon, amountsBefore);
+                        if (generated == null) {
+                            restoreItemOnCursor(p, beforeCursor);
+                            finishWeaponChange(p, instanceId);
+                            return;
+                        }
+
+                        ItemStack currentCursor = p.getItemOnCursor();
+                        if (currentCursor != null && currentCursor.getType() != Material.AIR) {
+                            restoreItemOnCursor(p, beforeCursor);
+                            finishWeaponChange(p, instanceId);
+                            return;
+                        }
+
+                        setWeaponInstanceId(generated, instanceId);
                         p.setItemOnCursor(generated);
                         applyWeaponAmmoToCursor(p, targetWeapon, ammo);
+                        finishWeaponChange(p, instanceId);
                     }
                 }.runTaskLater(plugin, 1L);
             }
@@ -1492,63 +1651,6 @@ public class WeaponsSPMode implements Listener {
         } catch (Exception ignored) {}
     }
 
-    private void replaceWeapon(Player p, String weaponName) {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (!p.isOnline()) return;
-
-                PlayerInventory inv = p.getInventory();
-                int replaceSlot = inv.getHeldItemSlot();
-                ItemStack oldItem = inv.getItem(replaceSlot);
-                String oldInstanceId = ensureWeaponInstanceId(oldItem);
-
-                inv.setItem(replaceSlot, null);
-                cs.giveWeapon(p, weaponName, 1);
-
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
-                        if (!p.isOnline()) return;
-
-                        ItemStack found = null;
-                        int foundSlot = -1;
-
-                        for (int i = 0; i < inv.getSize(); i++) {
-                            ItemStack item = inv.getItem(i);
-                            if (item != null && weaponName.equals(cs.getWeaponTitle(item))) {
-                                found = item;
-                                foundSlot = i;
-                                break;
-                            }
-                        }
-
-                        if (found != null) {
-                            if (found.getAmount() > 1) {
-                                found.setAmount(found.getAmount() - 1);
-                                ItemStack single = found.clone();
-                                single.setAmount(1);
-                                setWeaponInstanceId(single, oldInstanceId != null ? oldInstanceId : UUID.randomUUID().toString());
-                                inv.setItem(replaceSlot, single);
-                            } else {
-                                if (foundSlot != replaceSlot) {
-                                    inv.setItem(foundSlot, null);
-                                }
-                                setWeaponInstanceId(found, oldInstanceId != null ? oldInstanceId : UUID.randomUUID().toString());
-                                inv.setItem(replaceSlot, found);
-                            }
-
-                            inv.setHeldItemSlot(replaceSlot);
-                        }
-
-                        startStreakCounter(p, weaponName);
-                        startTimedWeaponChange(p, weaponName);
-                    }
-                }.runTaskLater(plugin, 1L);
-            }
-        }.runTaskLater(plugin, 1L);
-    }
-
     private void replaceWeapon(Player p, String expectedWeapon, String targetWeapon) {
         replaceWeapon(p, expectedWeapon, targetWeapon, false);
     }
@@ -1577,7 +1679,6 @@ public class WeaponsSPMode implements Listener {
                     }
                 }
 
-                inv.setItem(replaceSlot, null);
                 giveWeaponIntoSlot(p, targetWeapon, replaceSlot, true, ammo);
 
                 startStreakCounter(p, targetWeapon);
@@ -1586,75 +1687,64 @@ public class WeaponsSPMode implements Listener {
         }.runTaskLater(plugin, 1L);
     }
 
-    private void giveWeapon(Player p, String weaponName) {
-        PlayerInventory inv = p.getInventory();
-        giveWeaponIntoSlot(p, weaponName, inv.getHeldItemSlot());
-
-        startStreakCounter(p, weaponName);
-        startTimedWeaponChange(p, weaponName);
-    }
-
-    private void giveWeaponIntoSlot(Player p, String weaponName, int targetSlot) {
-        giveWeaponIntoSlot(p, weaponName, targetSlot, true, -1);
-    }
-
-    private void giveWeaponIntoSlot(Player p, String weaponName, int targetSlot, boolean selectTargetSlot) {
-        giveWeaponIntoSlot(p, weaponName, targetSlot, selectTargetSlot, -1);
-    }
-
     private void giveWeaponIntoSlot(Player p, String weaponName, int targetSlot, boolean selectTargetSlot, int takeoverAmmo) {
         if (!p.isOnline()) return;
 
         PlayerInventory inv = p.getInventory();
-        ItemStack beforeTarget = inv.getItem(targetSlot);
+        ItemStack currentTarget = inv.getItem(targetSlot);
+        ItemStack beforeTarget = currentTarget != null ? currentTarget.clone() : null;
+        String instanceId = ensureWeaponInstanceId(currentTarget);
+        boolean changeLocked = instanceId != null;
+
+        if (changeLocked && !beginWeaponChange(p, instanceId)) return;
+        if (instanceId == null) instanceId = UUID.randomUUID().toString();
+
+        final String targetInstanceId = instanceId;
         inv.setItem(targetSlot, null);
 
-        // giveWeapon呼び出し前に存在する同名武器のスロット番号をスナップショットとして記録
-        java.util.Set<Integer> slotsBefore = new java.util.HashSet<>();
-        for (int i = 0; i < inv.getSize(); i++) {
-            ItemStack it = inv.getItem(i);
-            if (it != null && weaponName.equals(cs.getWeaponTitle(it))) {
-                slotsBefore.add(i);
-            }
-        }
+        Map<Integer, Integer> amountsBefore = snapshotWeaponAmounts(inv, weaponName);
 
-        cs.giveWeapon(p, weaponName, 1);
+        try {
+            cs.giveWeapon(p, weaponName, 1);
+        } catch (Exception ex) {
+            restoreItemInSlot(p, targetSlot, beforeTarget);
+            if (changeLocked) finishWeaponChange(p, targetInstanceId);
+            plugin.getLogger().warning("Failed to give weapon " + weaponName
+                    + " to " + p.getName() + ": " + ex.getMessage());
+            return;
+        }
 
         new BukkitRunnable() {
             @Override
             public void run() {
-                if (!p.isOnline()) return;
-
-                // スナップショットに含まれないスロット = giveWeaponで新たに生成されたもの
-                int generatedSlot = -1;
-                for (int i = 0; i < inv.getSize(); i++) {
-                    ItemStack item = inv.getItem(i);
-                    if (item != null
-                            && weaponName.equals(cs.getWeaponTitle(item))
-                            && !slotsBefore.contains(i)) {
-                        generatedSlot = i;
-                        break;
-                    }
-                }
-
-                if (generatedSlot < 0) {
-                    if (inv.getItem(targetSlot) == null
-                            || inv.getItem(targetSlot).getType() == Material.AIR) {
-                        inv.setItem(targetSlot, beforeTarget);
-                    }
+                if (!p.isOnline()) {
+                    if (changeLocked) finishWeaponChange(p, targetInstanceId);
                     return;
                 }
 
-                ItemStack generated = inv.getItem(generatedSlot);
-                if (generatedSlot != targetSlot) {
-                    inv.setItem(generatedSlot, null);
+                ItemStack generated = takeGeneratedWeapon(inv, weaponName, amountsBefore);
+                if (generated == null) {
+                    restoreItemInSlot(p, targetSlot, beforeTarget);
+                    if (changeLocked) finishWeaponChange(p, targetInstanceId);
+                    return;
                 }
+
+                ItemStack current = inv.getItem(targetSlot);
+                if (current != null && current.getType() != Material.AIR) {
+                    restoreItemInSlot(p, targetSlot, beforeTarget);
+                    if (changeLocked) finishWeaponChange(p, targetInstanceId);
+                    return;
+                }
+
+                setWeaponInstanceId(generated, targetInstanceId);
                 inv.setItem(targetSlot, generated);
                 applyWeaponAmmoToSlot(p, weaponName, targetSlot, takeoverAmmo);
 
                 if (selectTargetSlot) {
                     inv.setHeldItemSlot(targetSlot);
                 }
+
+                if (changeLocked) finishWeaponChange(p, targetInstanceId);
             }
         }.runTaskLater(plugin, 1L);
     }
