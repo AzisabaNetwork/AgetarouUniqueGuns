@@ -28,9 +28,12 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 	// コマンドリスト
 	private static final List<BaseCommand> commands = new ArrayList<>();
 
+	private WeaponRecoveryStore weaponRecoveryStore;
+
 	@Override
 	public void onEnable() {
 		instance = this;
+		weaponRecoveryStore = new WeaponRecoveryStore(this);
 
 		// 設定読み込み
 		WeaponConfig.clearWeaponConfig();
@@ -106,6 +109,10 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 	 */
 	public static AgetarouUniqueGuns getInstance() {
 		return instance;
+	}
+
+	public WeaponRecoveryStore getWeaponRecoveryStore() {
+		return weaponRecoveryStore;
 	}
 
 	/**

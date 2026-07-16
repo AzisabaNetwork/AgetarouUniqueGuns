@@ -1,6 +1,8 @@
 package com.github.aburaagetarou.agetarouuniqueguns.weapons;
 
+import com.github.aburaagetarou.agetarouuniqueguns.AgetarouUniqueGuns;
 import com.github.aburaagetarou.agetarouuniqueguns.WeaponConfig;
+import com.github.aburaagetarou.agetarouuniqueguns.WeaponRecoveryStore;
 import com.shampaggon.crackshot.CSUtility;
 import com.shampaggon.crackshot.events.WeaponShootEvent;
 import me.DeeCaaD.CrackShotPlus.API;
@@ -45,6 +47,7 @@ public class WeaponsSPMode implements Listener {
     private final JavaPlugin plugin;
     private final CSUtility cs = new CSUtility();
     private final NamespacedKey weaponInstanceKey;
+    private final WeaponRecoveryStore recoveryStore;
 
     // クールダウン管理
     private final Map<String, Long> cooldownMap = new HashMap<>();
@@ -78,9 +81,10 @@ public class WeaponsSPMode implements Listener {
     private final Map<UUID, BukkitRunnable> weaponReturnCooldownBarTaskMap = new HashMap<>();
     private final AugActionBarManager actionBarManager;
 
-    public WeaponsSPMode(JavaPlugin plugin) {
+    public WeaponsSPMode(AgetarouUniqueGuns plugin) {
         this.plugin = plugin;
         this.weaponInstanceKey = new NamespacedKey(plugin, "weapon_instance");
+        this.recoveryStore = plugin.getWeaponRecoveryStore();
         this.actionBarManager = new AugActionBarManager(plugin, WeaponsSPMode::colorize);
     }
 
@@ -680,7 +684,7 @@ public class WeaponsSPMode implements Listener {
             return;
         }
 
-        addOrDropItem(p, originalItem);
+        addOrStoreRecovery(p, originalItem);
     }
 
     private void restoreItemInOffHand(Player p, ItemStack originalItem) {
@@ -692,7 +696,7 @@ public class WeaponsSPMode implements Listener {
             return;
         }
 
-        addOrDropItem(p, originalItem);
+        addOrStoreRecovery(p, originalItem);
     }
 
     private void restoreItemOnCursor(Player p, ItemStack originalItem) {
@@ -704,13 +708,13 @@ public class WeaponsSPMode implements Listener {
             return;
         }
 
-        addOrDropItem(p, originalItem);
+        addOrStoreRecovery(p, originalItem);
     }
 
-    private void addOrDropItem(Player p, ItemStack item) {
+    private void addOrStoreRecovery(Player p, ItemStack item) {
         Map<Integer, ItemStack> leftovers = p.getInventory().addItem(item.clone());
         for (ItemStack leftover : leftovers.values()) {
-            p.getWorld().dropItemNaturally(p.getLocation(), leftover);
+            recoveryStore.store(p, leftover, "weapon-change-rollback-inventory-full");
         }
     }
 
