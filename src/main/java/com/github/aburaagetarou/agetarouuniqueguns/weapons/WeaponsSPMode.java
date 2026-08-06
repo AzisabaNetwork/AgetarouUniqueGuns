@@ -70,6 +70,9 @@ public class WeaponsSPMode implements Listener {
     // 時間経過武器変更タスク
     private final Map<UUID, BukkitRunnable> timedWeaponChangeTaskMap = new HashMap<>();
 
+    // 時間経過武器変更のDelay_Barタスク
+    private final Map<UUID, BukkitRunnable> timedDelayBarTaskMap = new HashMap<>();
+
     // アクションバー一時停止管理（残りtick数）
     private final Map<UUID, Integer> actionBarPauseMap = new HashMap<>();
 
@@ -249,11 +252,10 @@ public class WeaponsSPMode implements Listener {
 
         if (newTitle != null) {
             startStreakCounter(p, newTitle);
-            if (!timedWeaponChangeTaskMap.containsKey(p.getUniqueId())) {
-                startTimedWeaponChange(p, newTitle);
-            }
+            startTimedWeaponChange(p, newTitle);
         } else {
             stopStreakCounter(p);
+            stopTimedWeaponChange(p);
         }
     }
 
@@ -351,6 +353,9 @@ public class WeaponsSPMode implements Listener {
 
         BukkitRunnable timedTask = timedWeaponChangeTaskMap.remove(uuid);
         if (timedTask != null) timedTask.cancel();
+
+        BukkitRunnable delayBarTask = timedDelayBarTaskMap.remove(uuid);
+        if (delayBarTask != null) delayBarTask.cancel();
 
         BukkitRunnable returnCooldownTask = weaponReturnCooldownBarTaskMap.remove(uuid);
         if (returnCooldownTask != null) returnCooldownTask.cancel();
@@ -772,7 +777,8 @@ public class WeaponsSPMode implements Listener {
         Map<String, Integer> streaks = weaponKillStreakMap.get(p.getUniqueId());
         if (streaks == null) return;
 
-        String currentWeapon = cs.getWeaponTitle(p.getInventory().getItemInMainHand());
+        ItemStack currentItem = p.getInventory().getItemInMainHand();
+        String currentWeapon = cs.getWeaponTitle(currentItem);
         if (currentWeapon == null) return;
 
         ConfigurationSection root = WeaponConfig.getWeaponConfig(currentWeapon);
@@ -781,7 +787,7 @@ public class WeaponsSPMode implements Listener {
         if (ks == null || !ks.getBoolean("Enable", false)) return;
         if (!ks.getBoolean("Remove_Streak", true)) return;
 
-        String key = getStreakKey(currentWeapon);
+        String key = getStreakStorageKey(currentItem, currentWeapon);
         int removeAmount = ks.getInt("Remove_Several_Streak", -1);
         if (removeAmount == -1) {
             streaks.remove(key);
@@ -1137,21 +1143,26 @@ public class WeaponsSPMode implements Listener {
     private void stopTimedWeaponChange(Player p) {
         BukkitRunnable task = timedWeaponChangeTaskMap.remove(p.getUniqueId());
         if (task != null) task.cancel();
+
+        stopTimedDelayBar(p);
     }
 
     // ===== Delay Bar =====
 
     private void startTimedDelayBar(Player p, ConfigurationSection sec, int ticks) {
-        new BukkitRunnable() {
+        stopTimedDelayBar(p);
+
+        UUID uuid = p.getUniqueId();
+        BukkitRunnable task = new BukkitRunnable() {
             int i = 0;
 
             public void run() {
                 if (!p.isOnline()) {
                     this.cancel();
+                    timedDelayBarTaskMap.remove(uuid, this);
                     return;
                 }
 
-                UUID uuid = p.getUniqueId();
                 actionBarPauseMap.put(uuid, 4);
 
                 if (i >= ticks) {
@@ -1160,7 +1171,7 @@ public class WeaponsSPMode implements Listener {
                         actionBarPauseMap.put(uuid, 30);
                         actionBarManager.send(
                                 p,
-                                endMsg.replace("{time}", "0"),
+                                endMsg.replace("{time}", "0.0"),
                                 30,
                                 AugActionBarManager.PRIORITY_BAR
                         );
@@ -1172,6 +1183,7 @@ public class WeaponsSPMode implements Listener {
                     }
 
                     this.cancel();
+                    timedDelayBarTaskMap.remove(uuid, this);
                     return;
                 }
 
@@ -1189,11 +1201,20 @@ public class WeaponsSPMode implements Listener {
 
                 i += 2;
             }
-        }.runTaskTimer(plugin, 0L, 2L);
+        };
+
+        task.runTaskTimer(plugin, 0L, 2L);
+        timedDelayBarTaskMap.put(uuid, task);
+    }
+
+    private void stopTimedDelayBar(Player p) {
+        BukkitRunnable task = timedDelayBarTaskMap.remove(p.getUniqueId());
+        if (task != null) task.cancel();
     }
 
     private String formatRemainingSeconds(int remainingTicks) {
-        return String.valueOf(Math.max(0, (remainingTicks + 19) / 20));
+        double seconds = Math.max(0, remainingTicks) / 20.0;
+        return String.format(java.util.Locale.ROOT, "%.1f", seconds);
     }
 
     private void startReturnCooldown(Player p, String fromWeapon, String toWeapon, ConfigurationSection sourceSection) {

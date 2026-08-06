@@ -521,7 +521,7 @@ public class UniversalWeaponSystem implements Listener {
                     if (endMsg != null && !endMsg.isEmpty()) {
                         p.spigot().sendMessage(
                                 ChatMessageType.ACTION_BAR,
-                                new TextComponent(translate(endMsg.replace("{time}", "0")))
+                                new TextComponent(translate(endMsg.replace("{time}", "0.0")))
                         );
                     }
                     String endSound = sec.getString("End_Sound");
@@ -551,7 +551,8 @@ public class UniversalWeaponSystem implements Listener {
     }
 
     private String formatRemainingSeconds(int remainingTicks) {
-        return String.valueOf(Math.max(0, (remainingTicks + 19) / 20));
+        double seconds = Math.max(0, remainingTicks) / 20.0;
+        return String.format(java.util.Locale.ROOT, "%.1f", seconds);
     }
 
     private String buildBar(double pct, ConfigurationSection sec) {
