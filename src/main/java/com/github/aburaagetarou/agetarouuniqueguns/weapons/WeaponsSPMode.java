@@ -1158,7 +1158,12 @@ public class WeaponsSPMode implements Listener {
                     String endMsg = sec.getString("End_Action_Bar");
                     if (endMsg != null && !endMsg.isEmpty()) {
                         actionBarPauseMap.put(uuid, 30);
-                        actionBarManager.send(p, endMsg, 30, AugActionBarManager.PRIORITY_BAR);
+                        actionBarManager.send(
+                                p,
+                                endMsg.replace("{time}", "0"),
+                                30,
+                                AugActionBarManager.PRIORITY_BAR
+                        );
                     }
 
                     String endSound = sec.getString("End_Sound");
@@ -1173,9 +1178,10 @@ public class WeaponsSPMode implements Listener {
                 String actionStr = sec.getString("Action_Bar");
                 if (actionStr != null && !actionStr.isEmpty()) {
                     String bar = buildBar((double) i / ticks, sec);
+                    String remainingSeconds = formatRemainingSeconds(ticks - i);
                     actionBarManager.send(
                             p,
-                            actionStr.replace("{bar}", bar),
+                            actionStr.replace("{bar}", bar).replace("{time}", remainingSeconds),
                             8,
                             AugActionBarManager.PRIORITY_BAR
                     );
@@ -1185,6 +1191,11 @@ public class WeaponsSPMode implements Listener {
             }
         }.runTaskTimer(plugin, 0L, 2L);
     }
+
+    private String formatRemainingSeconds(int remainingTicks) {
+        return String.valueOf(Math.max(0, (remainingTicks + 19) / 20));
+    }
+
     private void startReturnCooldown(Player p, String fromWeapon, String toWeapon, ConfigurationSection sourceSection) {
         ConfigurationSection sec = sourceSection.getConfigurationSection("Return_Cooldown");
         if (sec == null || !sec.getBoolean("Enable", false)) return;
