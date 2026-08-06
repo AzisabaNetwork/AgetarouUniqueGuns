@@ -252,10 +252,11 @@ public class WeaponsSPMode implements Listener {
 
         if (newTitle != null) {
             startStreakCounter(p, newTitle);
-            startTimedWeaponChange(p, newTitle);
+            if (!timedWeaponChangeTaskMap.containsKey(p.getUniqueId())) {
+                startTimedWeaponChange(p, newTitle);
+            }
         } else {
             stopStreakCounter(p);
-            stopTimedWeaponChange(p);
         }
     }
 
@@ -330,6 +331,7 @@ public class WeaponsSPMode implements Listener {
 
         stopStreakCounter(p);
         stopTimedWeaponChange(p);
+        stopTimedDelayBar(p);
         jumpMap.remove(uuid);
         lastYMap.remove(uuid);
     }
@@ -1143,8 +1145,6 @@ public class WeaponsSPMode implements Listener {
     private void stopTimedWeaponChange(Player p) {
         BukkitRunnable task = timedWeaponChangeTaskMap.remove(p.getUniqueId());
         if (task != null) task.cancel();
-
-        stopTimedDelayBar(p);
     }
 
     // ===== Delay Bar =====
