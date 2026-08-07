@@ -1496,12 +1496,12 @@ public class WeaponsSPMode implements Listener {
 
         int ammo = takeoverAmmo ? getWeaponAmmoInSlot(p, expectedWeapon, targetSlot) : -1;
 
-        giveWeaponIntoSlot(p, targetWeapon, targetSlot, false, ammo);
-
-        if (inv.getHeldItemSlot() == targetSlot) {
-            startStreakCounter(p, targetWeapon);
+        giveWeaponIntoSlot(p, targetWeapon, targetSlot, false, ammo, () -> {
+            if (inv.getHeldItemSlot() == targetSlot) {
+                startStreakCounter(p, targetWeapon);
+            }
             startTimedWeaponChange(p, targetWeapon);
-        }
+        });
     }
 
     private boolean isWeaponOnCursor(Player p, String weaponName) {
@@ -1572,6 +1572,7 @@ public class WeaponsSPMode implements Listener {
                         inv.setItemInOffHand(generated);
                         applyWeaponAmmoToOffHand(p, targetWeapon, ammo);
                         finishWeaponChange(p, instanceId);
+                        startTimedWeaponChange(p, targetWeapon);
                     }
                 }.runTaskLater(plugin, 1L);
             }
@@ -1653,6 +1654,7 @@ public class WeaponsSPMode implements Listener {
                         p.setItemOnCursor(generated);
                         applyWeaponAmmoToCursor(p, targetWeapon, ammo);
                         finishWeaponChange(p, instanceId);
+                        startTimedWeaponChange(p, targetWeapon);
                     }
                 }.runTaskLater(plugin, 1L);
             }
@@ -1715,15 +1717,17 @@ public class WeaponsSPMode implements Listener {
                     }
                 }
 
-                giveWeaponIntoSlot(p, targetWeapon, replaceSlot, true, ammo);
-
-                startStreakCounter(p, targetWeapon);
-                startTimedWeaponChange(p, targetWeapon);
+                giveWeaponIntoSlot(p, targetWeapon, replaceSlot, true, ammo, () -> {
+                    startStreakCounter(p, targetWeapon);
+                    startTimedWeaponChange(p, targetWeapon);
+                });
             }
         }.runTaskLater(plugin, 1L);
     }
 
-    private void giveWeaponIntoSlot(Player p, String weaponName, int targetSlot, boolean selectTargetSlot, int takeoverAmmo) {
+    private void giveWeaponIntoSlot(Player p, String weaponName, int targetSlot,
+                                    boolean selectTargetSlot, int takeoverAmmo,
+                                    Runnable onSuccess) {
         if (!p.isOnline()) return;
 
         PlayerInventory inv = p.getInventory();
@@ -1781,6 +1785,7 @@ public class WeaponsSPMode implements Listener {
                 }
 
                 if (changeLocked) finishWeaponChange(p, targetInstanceId);
+                if (onSuccess != null) onSuccess.run();
             }
         }.runTaskLater(plugin, 1L);
     }
