@@ -1237,7 +1237,7 @@ public class WeaponsSPMode implements Listener {
                 timedWeaponChangeStateMap.remove(uuid, state);
                 stopTimedDelayBar(p);
 
-                trackWeaponChange(p, state.weaponTitle, targetWeapon, false);
+                trackTimedWeaponChange(p, state.weaponTitle, targetWeapon);
 
                 if (targetSlot >= 0) {
                     replaceWeaponInSlot(p, state.weaponTitle, targetWeapon, targetSlot, takeoverAmmo);
@@ -1492,6 +1492,37 @@ public class WeaponsSPMode implements Listener {
             originalWeaponMap.putIfAbsent(uuid, currentWeapon);
             changedWeaponMap.put(uuid, targetWeapon);
         }
+    }
+
+    private void trackTimedWeaponChange(Player p, String currentWeapon, String targetWeapon) {
+        if (shouldRestoreOnDeath(currentWeapon)) {
+            trackWeaponChange(p, currentWeapon, targetWeapon, false);
+            return;
+        }
+
+        UUID uuid = p.getUniqueId();
+        clearCompletedWeaponChange(
+                uuid,
+                currentWeapon,
+                targetWeapon,
+                originalWeaponMap,
+                changedWeaponMap
+        );
+        clearCompletedWeaponChange(
+                uuid,
+                currentWeapon,
+                targetWeapon,
+                killStreakOriginalWeaponMap,
+                killStreakChangedWeaponMap
+        );
+    }
+
+    private void clearCompletedWeaponChange(UUID uuid, String currentWeapon, String targetWeapon,
+                                            Map<UUID, String> originalMap, Map<UUID, String> changedMap) {
+        if (!targetWeapon.equals(originalMap.get(uuid)) || !currentWeapon.equals(changedMap.get(uuid))) return;
+
+        originalMap.remove(uuid);
+        changedMap.remove(uuid);
     }
 
     private void restoreChangedWeaponOnDeath(Player p, String changedWeapon, String originalWeapon) {
