@@ -1072,56 +1072,122 @@ public class WeaponsSPMode implements Listener {
     // ===== 時間経過武器変更 =====
 
     private void startTimedWeaponChange(Player p, String weaponTitle) {
-        stopTimedWeaponChange(p);
-
         ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
-        if (root == null) return;
+        if (root == null) {
+            stopTimedWeaponChange(p);
+            return;
+        }
         ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
-        if (changeSection == null || !changeSection.getBoolean("Enable", false)) return;
+        if (changeSection == null || !changeSection.getBoolean("Enable", false)) {
+            stopTimedWeaponChange(p);
+            return;
+        }
         ConfigurationSection timedSection = changeSection.getConfigurationSection("Timed_Change");
-        if (timedSection == null) return;
+        if (timedSection == null) {
+            stopTimedWeaponChange(p);
+            return;
+        }
 
         int delayTicks = timedSection.getInt("Delay_Ticks", 0);
         String targetWeapon = timedSection.getString("Target_Weapon");
-        if (delayTicks <= 0 || targetWeapon == null || targetWeapon.isEmpty()) return;
+        if (delayTicks <= 0 || targetWeapon == null || targetWeapon.isEmpty()) {
+            stopTimedWeaponChange(p);
+            return;
+        }
 
         UUID uuid = p.getUniqueId();
+        ItemStack timedWeapon = findWeaponByTitle(p, weaponTitle);
+        String instanceId = ensureWeaponInstanceId(timedWeapon);
+        if (instanceId == null) {
+            stopTimedWeaponChange(p);
+            return;
+        }
 
-        // Delay_Bar を即時開始
+        TimedWeaponChangeState currentState = timedWeaponChangeStateMap.get(uuid);
+        TimedWeaponChangeState state;
+        if (currentState != null
+                && currentState.instanceId.equals(instanceId)
+                && currentState.weaponTitle.equals(weaponTitle)) {
+            state = currentState;
+        } else {
+            state = new TimedWeaponChangeState(
+                    instanceId,
+                    weaponTitle,
+                    delayTicks,
+                    getCurrentServerTick() + delayTicks
+            );
+        }
+
+        pauseTimedWeaponChange(p);
+        timedWeaponChangeStateMap.put(uuid, state);
+        resumeTimedWeaponChange(p, state);
+    }
+
+    private void resumeTimedWeaponChange(Player p, TimedWeaponChangeState state) {
+        UUID uuid = p.getUniqueId();
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(state.weaponTitle);
+        if (root == null) {
+            stopTimedWeaponChange(p);
+            return;
+        }
+
+        ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
+        ConfigurationSection timedSection = changeSection != null
+                ? changeSection.getConfigurationSection("Timed_Change")
+                : null;
+        String targetWeapon = timedSection != null ? timedSection.getString("Target_Weapon") : null;
+        if (timedSection == null || targetWeapon == null || targetWeapon.isEmpty()) {
+            stopTimedWeaponChange(p);
+            return;
+        }
+
+        long remainingTicks = Math.max(0L, state.deadlineTick - getCurrentServerTick());
+        int elapsedTicks = (int) Math.max(0L, Math.min((long) state.totalTicks,
+                (long) state.totalTicks - remainingTicks));
+
         ConfigurationSection delayBarSection = timedSection.getConfigurationSection("Delay_Bar");
         if (delayBarSection != null && delayBarSection.getBoolean("Enable", false)) {
-            startTimedDelayBar(p, delayBarSection, delayTicks);
+            startTimedDelayBar(p, delayBarSection, state.totalTicks, elapsedTicks);
         }
 
         BukkitRunnable task = new BukkitRunnable() {
             @Override
             public void run() {
                 if (!p.isOnline()) {
-                    this.cancel();
-                    timedWeaponChangeTaskMap.remove(uuid);
+                    timedWeaponChangeTaskMap.remove(uuid, this);
+                    return;
+                }
+
+                if (p.isDead()) {
+                    timedWeaponChangeTaskMap.remove(uuid, this);
                     return;
                 }
 
                 PlayerInventory inv = p.getInventory();
-                int targetSlot = findWeaponSlot(inv, weaponTitle);
+                int targetSlot = findWeaponSlotByInstanceId(inv, state.weaponTitle, state.instanceId);
                 boolean takeoverAmmo = timedSection.getBoolean("Takeover_Ammo", false);
 
                 if (targetSlot < 0
-                        && !isWeaponInOffHand(p, weaponTitle)
-                        && !isWeaponOnCursor(p, weaponTitle)) {
-                    this.cancel();
-                    timedWeaponChangeTaskMap.remove(uuid);
+                        && !isWeaponInOffHand(p, state.weaponTitle, state.instanceId)
+                        && !isWeaponOnCursor(p, state.weaponTitle, state.instanceId)) {
+                    timedWeaponChangeTaskMap.remove(uuid, this);
+                    timedWeaponChangeStateMap.remove(uuid, state);
+                    stopTimedDelayBar(p);
                     return;
                 }
 
-                trackWeaponChange(p, weaponTitle, targetWeapon, false);
+                timedWeaponChangeTaskMap.remove(uuid, this);
+                timedWeaponChangeStateMap.remove(uuid, state);
+                stopTimedDelayBar(p);
+
+                trackWeaponChange(p, state.weaponTitle, targetWeapon, false);
 
                 if (targetSlot >= 0) {
-                    replaceWeaponInSlot(p, weaponTitle, targetWeapon, targetSlot, takeoverAmmo);
-                } else if (isWeaponInOffHand(p, weaponTitle)) {
-                    replaceWeaponInOffHand(p, weaponTitle, targetWeapon, takeoverAmmo);
+                    replaceWeaponInSlot(p, state.weaponTitle, targetWeapon, targetSlot, takeoverAmmo);
+                } else if (isWeaponInOffHand(p, state.weaponTitle, state.instanceId)) {
+                    replaceWeaponInOffHand(p, state.weaponTitle, targetWeapon, takeoverAmmo);
                 } else {
-                    replaceWeaponOnCursor(p, weaponTitle, targetWeapon, takeoverAmmo);
+                    replaceWeaponOnCursor(p, state.weaponTitle, targetWeapon, takeoverAmmo);
                 }
 
                 String sound = timedSection.getString("Sound");
@@ -1133,28 +1199,31 @@ public class WeaponsSPMode implements Listener {
                     actionBarManager.send(p, message, 40, AugActionBarManager.PRIORITY_MESSAGE);
                 }
 
-                this.cancel();
-                timedWeaponChangeTaskMap.remove(uuid);
             }
         };
 
-        task.runTaskLater(plugin, delayTicks);
+        task.runTaskLater(plugin, remainingTicks);
         timedWeaponChangeTaskMap.put(uuid, task);
     }
 
     private void stopTimedWeaponChange(Player p) {
+        pauseTimedWeaponChange(p);
+        timedWeaponChangeStateMap.remove(p.getUniqueId());
+    }
+
+    private void pauseTimedWeaponChange(Player p) {
         BukkitRunnable task = timedWeaponChangeTaskMap.remove(p.getUniqueId());
         if (task != null) task.cancel();
     }
 
     // ===== Delay Bar =====
 
-    private void startTimedDelayBar(Player p, ConfigurationSection sec, int ticks) {
+    private void startTimedDelayBar(Player p, ConfigurationSection sec, int ticks, int elapsedTicks) {
         stopTimedDelayBar(p);
 
         UUID uuid = p.getUniqueId();
         BukkitRunnable task = new BukkitRunnable() {
-            int i = 0;
+            int i = Math.max(0, Math.min(ticks, elapsedTicks));
 
             public void run() {
                 if (!p.isOnline()) {
