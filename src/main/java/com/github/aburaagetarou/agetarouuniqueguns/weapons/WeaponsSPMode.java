@@ -71,7 +71,11 @@ public class WeaponsSPMode implements Listener {
     // 時間経過武器変更タスク
     private final Map<UUID, BukkitRunnable> timedWeaponChangeTaskMap = new HashMap<>();
 
+<<<<<<< Updated upstream
     // 時間経過武器変更の期限（プレイヤーごとに対象武器の個体IDと期限tickを保持）
+=======
+    // 時間経過武器変更の期限（プレイヤーごとに、対象武器の個体IDと期限tickを保持）
+>>>>>>> Stashed changes
     private final Map<UUID, TimedWeaponChangeState> timedWeaponChangeStateMap = new HashMap<>();
 
     // 時間経過武器変更のDelay_Barタスク

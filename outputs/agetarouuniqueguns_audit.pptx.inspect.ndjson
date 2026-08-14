@@ -1,0 +1,127 @@
+{"kind":"deck","id":"pr/8412wr","name":"Deck"}
+{"kind":"layout","layoutId":"206f98ef-4e91-4613-a73f-ed01cad4332a","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"d710db0a-9643-4ce0-ab8f-b7d0cd4daaf7","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/uvb3pd","slide":1,"title":"AgetarouUniqueGuns","textShapes":6}
+{"kind":"textbox","id":"sh/qpg3ex0n","slide":1,"text":"AgetarouUniqueGuns","textPreview":"AgetarouUniqueGuns","textChars":18,"textLines":1,"bbox":[42,52,840,72]}
+{"kind":"textbox","id":"sh/xczed8v6","slide":1,"text":"バグ・改善点・追加すると面白い要素","textPreview":"バグ・改善点・追加すると面白い要素","textChars":17,"textLines":1,"bbox":[42,132,860,52]}
+{"kind":"textbox","id":"sh/8v6psfil","slide":1,"text":"対象: Java / Paper 1.16.5 / CrackShot 系プラグイン。コード静的調査と Maven package 成功結果をもとに整理。","textPreview":"対象: Java / Paper 1.16.5 / CrackShot 系プラグイン。コード静的調査と Maven package 成功結果をもとに整理。","textChars":77,"textLines":1,"bbox":[42,560,900,64]}
+{"kind":"shape","id":"sh/fyxobm58","slide":1,"bbox":[925,48,272,520]}
+{"kind":"textbox","id":"sh/qd4vmtwr","slide":1,"text":"結論","textPreview":"結論","textChars":2,"textLines":1,"bbox":[970,95,180,34]}
+{"kind":"textbox","id":"sh/x4nap4r6","slide":1,"text":"まず直すべきは設定読み込み・権限定義・文字化け・状態管理です。\n\nその後、武器ギミックをデータ駆動に寄せると追加要素を増やしやすくなります。","textPreview":"まず直すべきは設定読み込み・権限定義・文字化け・状態管理です。 |  | その後、武器ギミックをデータ駆動に寄せると追加要素を増やしやすくなります。","textChars":70,"textLines":3,"bbox":[970,158,190,260]}
+{"kind":"textbox","id":"sh/8jqh0fep","slide":1,"text":"AgetarouUniqueGuns audit / 1","textPreview":"AgetarouUniqueGuns audit / 1","textChars":28,"textLines":1,"bbox":[1040,660,200,24]}
+{"kind":"notes","id":"nt/uvb3pd","slide":1,"text":""}
+{"kind":"slide","id":"sl/hfavcq","slide":2,"title":"優先順位の全体像","textShapes":9}
+{"kind":"textbox","id":"sh/xczed8v6","slide":2,"text":"優先順位の全体像","textPreview":"優先順位の全体像","textChars":8,"textLines":1,"bbox":[42,36,900,74]}
+{"kind":"textbox","id":"sh/qpg3ex0n","slide":2,"text":"先に安定化、その次に拡張性、最後に遊びの幅を増やす順が現実的です。","textPreview":"先に安定化、その次に拡張性、最後に遊びの幅を増やす順が現実的です。","textChars":33,"textLines":1,"bbox":[42,114,720,38]}
+{"kind":"textbox","id":"sh/fa9w3m94","slide":2,"text":"AgetarouUniqueGuns audit / 2","textPreview":"AgetarouUniqueGuns audit / 2","textChars":28,"textLines":1,"bbox":[1040,660,200,24]}
+{"kind":"shape","id":"sh/8jqh0fep","slide":2,"bbox":[42,230,330,260]}
+{"kind":"textbox","id":"sh/x4nap4r6","slide":2,"text":"1. すぐ直す","textPreview":"1. すぐ直す","textChars":7,"textLines":1,"bbox":[64,252,286,34]}
+{"kind":"textbox","id":"sh/qd4vmtwr","slide":2,"text":"plugin.yml の permissions 誤字、reload 時の設定クリア漏れ、文字化けした説明文。運用上の混乱を最小コストで減らせます。","textPreview":"plugin.yml の permissions 誤字、reload 時の設定クリア漏れ、文字化けした説明文。運用上の混乱を最小コストで減らせます。","textChars":74,"textLines":1,"bbox":[64,298,286,170]}
+{"kind":"shape","id":"sh/fyxobm58","slide":2,"bbox":[453,230,330,260]}
+{"kind":"textbox","id":"sh/87ed8bat","slide":2,"text":"2. バグ予防","textPreview":"2. バグ予防","textChars":7,"textLines":1,"bbox":[475,252,286,34]}
+{"kind":"textbox","id":"sh/xs72x4na","slide":2,"text":"static Map<Player/Entity, ...>、無言 catch、複数タスクの生存管理を見直します。長時間稼働サーバーで効きます。","textPreview":"static Map<Player/Entity, ...>、無言 catch、複数タスクの生存管理を見直します。長時間稼働サーバーで効きます。","textChars":72,"textLines":1,"bbox":[475,298,286,170]}
+{"kind":"shape","id":"sh/xkf6dcbu","slide":2,"bbox":[864,230,330,260]}
+{"kind":"textbox","id":"sh/4zidonyd","slide":2,"text":"3. 面白さ追加","textPreview":"3. 面白さ追加","textChars":8,"textLines":1,"bbox":[886,252,286,34]}
+{"kind":"textbox","id":"sh/fepkzupw","slide":2,"text":"武器進化、コンボ、チーム連携、リスク付き超火力などを YAML 設定で足せる形にするとイベント運用が楽になります。","textPreview":"武器進化、コンボ、チーム連携、リスク付き超火力などを YAML 設定で足せる形にするとイベント運用が楽になります。","textChars":57,"textLines":1,"bbox":[886,298,286,170]}
+{"kind":"shape","id":"sh/mtwra5gb","slide":2,"bbox":[42,190,1196,1]}
+{"kind":"notes","id":"nt/hfavcq","slide":2,"text":""}
+{"kind":"slide","id":"sl/li6n9l","slide":3,"title":"バグ候補: 実害が出やすい箇所","textShapes":15}
+{"kind":"textbox","id":"sh/obm58z25","slide":3,"text":"バグ候補: 実害が出やすい箇所","textPreview":"バグ候補: 実害が出やすい箇所","textChars":15,"textLines":1,"bbox":[42,36,900,74]}
+{"kind":"textbox","id":"sh/zqtcj6to","slide":3,"text":"コンパイルは通るが、サーバー運用で不具合になりやすい点です。","textPreview":"コンパイルは通るが、サーバー運用で不具合になりやすい点です。","textChars":30,"textLines":1,"bbox":[42,114,720,38]}
+{"kind":"textbox","id":"sh/65wjudg7","slide":3,"text":"AgetarouUniqueGuns audit / 3","textPreview":"AgetarouUniqueGuns audit / 3","textChars":28,"textLines":1,"bbox":[1040,660,200,24]}
+{"kind":"textbox","id":"sh/hk3q5o7q","slide":3,"text":"権限が読まれない","textPreview":"権限が読まれない","textChars":8,"textLines":1,"bbox":[42,185,160,26]}
+{"kind":"textbox","id":"sh/oza1gvy9","slide":3,"text":"plugin.yml: permisssions","textPreview":"plugin.yml: permisssions","textChars":24,"textLines":1,"bbox":[250,183,300,28]}
+{"kind":"textbox","id":"sh/zed8v6ps","slide":3,"text":"Spigot が permissions と認識できず、権限定義が無効化される可能性があります。","textPreview":"Spigot が permissions と認識できず、権限定義が無効化される可能性があります。","textChars":48,"textLines":1,"bbox":[590,181,600,54]}
+{"kind":"shape","id":"sh/6xkf6dcb","slide":3,"bbox":[42,255,1196,1]}
+{"kind":"textbox","id":"sh/hcrmhk3q","slide":3,"text":"reload が古い設定を残す","textPreview":"reload が古い設定を残す","textChars":15,"textLines":1,"bbox":[42,280,160,26]}
+{"kind":"textbox","id":"sh/orytsvu9","slide":3,"text":"AUGCommand.onReload","textPreview":"AUGCommand.onReload","textChars":19,"textLines":1,"bbox":[250,278,300,28]}
+{"kind":"textbox","id":"sh/yxobm58z","slide":3,"text":"loadDefaultWeaponConfig だけ呼ぶため、削除済み武器や変更前キーが Map に残る可能性があります。","textPreview":"loadDefaultWeaponConfig だけ呼ぶため、削除済み武器や変更前キーが Map に残る可能性があります。","textChars":61,"textLines":1,"bbox":[590,276,600,54]}
+{"kind":"shape","id":"sh/nih4byhg","slide":3,"bbox":[42,350,1196,1]}
+{"kind":"textbox","id":"sh/g3ex0nux","slide":3,"text":"文字化けで運用不能","textPreview":"文字化けで運用不能","textChars":9,"textLines":1,"bbox":[42,375,160,26]}
+{"kind":"textbox","id":"sh/5o7qpg3e","slide":3,"text":"コメント・説明文・メッセージ","textPreview":"コメント・説明文・メッセージ","textChars":14,"textLines":1,"bbox":[250,373,300,28]}
+{"kind":"textbox","id":"sh/ylc7u54z","slide":3,"text":"ヘルプやログが読みにくく、設定者が原因を追いにくくなります。","textPreview":"ヘルプやログが読みにくく、設定者が原因を追いにくくなります。","textChars":30,"textLines":1,"bbox":[590,371,600,54]}
+{"kind":"shape","id":"sh/r65wjudg","slide":3,"bbox":[42,445,1196,1]}
+{"kind":"textbox","id":"sh/gr2p8nqx","slide":3,"text":"状態 Map が残りやすい","textPreview":"状態 Map が残りやすい","textChars":13,"textLines":1,"bbox":[42,470,160,26]}
+{"kind":"textbox","id":"sh/9cvixcze","slide":3,"text":"static Map<Player/Entity,...>","textPreview":"static Map<Player/Entity,...>","textChars":29,"textLines":1,"bbox":[250,468,300,28]}
+{"kind":"textbox","id":"sh/yd0z6103","slide":3,"text":"Player/Entity 参照をキーに持つため、離脱・死亡・再読込時の後始末漏れがメモリ保持につながります。","textPreview":"Player/Entity 参照をキーに持つため、離脱・死亡・再読込時の後始末漏れがメモリ保持につながります。","textChars":55,"textLines":1,"bbox":[590,466,600,54]}
+{"kind":"shape","id":"sh/rytsvu9k","slide":3,"bbox":[42,540,1196,1]}
+{"kind":"notes","id":"nt/li6n9l","slide":3,"text":""}
+{"kind":"slide","id":"sl/4x0kl8","slide":4,"title":"改善点: 保守性を上げる","textShapes":11}
+{"kind":"textbox","id":"sh/psfil0rq","slide":4,"text":"改善点: 保守性を上げる","textPreview":"改善点: 保守性を上げる","textChars":12,"textLines":1,"bbox":[42,36,900,74]}
+{"kind":"textbox","id":"sh/e1w7mp0b","slide":4,"text":"新武器追加が増えるほど効いてくる設計上の改善です。","textPreview":"新武器追加が増えるほど効いてくる設計上の改善です。","textChars":25,"textLines":1,"bbox":[42,114,720,38]}
+{"kind":"textbox","id":"sh/7mp0bi9s","slide":4,"text":"AgetarouUniqueGuns audit / 4","textPreview":"AgetarouUniqueGuns audit / 4","textChars":28,"textLines":1,"bbox":[1040,660,200,24]}
+{"kind":"shape","id":"sh/wval87ed","slide":4,"bbox":[42,190,560,190]}
+{"kind":"textbox","id":"sh/pg3ex0nu","slide":4,"text":"登録処理を集約","textPreview":"登録処理を集約","textChars":7,"textLines":1,"bbox":[64,212,516,34]}
+{"kind":"textbox","id":"sh/epkzupwb","slide":4,"text":"onEnable に武器 listener が直書きで増え続けています。WeaponRegistry のような登録リストに寄せると、追加・削除・テスト武器の切り替えが安全になります。","textPreview":"onEnable に武器 listener が直書きで増え続けています。WeaponRegistry のような登録リストに寄せると、追加・削除・テスト武器の切り替えが安全になります。","textChars":91,"textLines":1,"bbox":[64,258,516,100]}
+{"kind":"shape","id":"sh/7adsji5s","slide":4,"bbox":[678,190,560,190]}
+{"kind":"textbox","id":"sh/wra5gbq1","slide":4,"text":"設定検証を追加","textPreview":"設定検証を追加","textChars":7,"textLines":1,"bbox":[700,212,516,34]}
+{"kind":"textbox","id":"sh/lc7u54zi","slide":4,"text":"WeaponConfig 読み込み時に必須キー、型、範囲、重複 weaponId をログ出力します。YAML ミスを起動時に見つけられます。","textPreview":"WeaponConfig 読み込み時に必須キー、型、範囲、重複 weaponId をログ出力します。YAML ミスを起動時に見つけられます。","textChars":70,"textLines":1,"bbox":[700,258,516,100]}
+{"kind":"shape","id":"sh/9w3m94fu","slide":4,"bbox":[42,420,560,170]}
+{"kind":"textbox","id":"sh/kb6xkf6d","slide":4,"text":"無言 catch をログ化","textPreview":"無言 catch をログ化","textChars":13,"textLines":1,"bbox":[64,442,516,34]}
+{"kind":"textbox","id":"sh/rqd4vmtw","slide":4,"text":"catch (Exception ignored) が複数あります。Sound 名ミスなどを debug ログに出せば、設定担当者が自己解決しやすくなります。","textPreview":"catch (Exception ignored) が複数あります。Sound 名ミスなどを debug ログに出せば、設定担当者が自己解決しやすくなります。","textChars":79,"textLines":1,"bbox":[64,488,516,80]}
+{"kind":"shape","id":"sh/25kb6xkf","slide":4,"bbox":[678,420,560,170]}
+{"kind":"textbox","id":"sh/9knih4by","slide":4,"text":"タスクのライフサイクル管理","textPreview":"タスクのライフサイクル管理","textChars":13,"textLines":1,"bbox":[700,442,516,34]}
+{"kind":"textbox","id":"sh/kzupwb2h","slide":4,"text":"runTaskTimer / runTaskLater が多いため、武器単位・プレイヤー単位で cancel 経路を標準化すると再読込や退出時の事故が減ります。","textPreview":"runTaskTimer / runTaskLater が多いため、武器単位・プレイヤー単位で cancel 経路を標準化すると再読込や退出時の事故が減ります。","textChars":80,"textLines":1,"bbox":[700,488,516,80]}
+{"kind":"notes","id":"nt/4x0kl8","slide":4,"text":""}
+{"kind":"slide","id":"sl/qxgh5t","slide":5,"title":"重点確認したい武器挙動","textShapes":11}
+{"kind":"textbox","id":"sh/32lszqtc","slide":5,"text":"重点確認したい武器挙動","textPreview":"重点確認したい武器挙動","textChars":11,"textLines":1,"bbox":[42,36,900,74]}
+{"kind":"textbox","id":"sh/sneloj2t","slide":5,"text":"ゲーム体験を壊しやすいので、再現テストを先に作る価値があります。","textPreview":"ゲーム体験を壊しやすいので、再現テストを先に作る価値があります。","textChars":32,"textLines":1,"bbox":[42,114,720,38]}
+{"kind":"textbox","id":"sh/l87ed8ba","slide":5,"text":"AgetarouUniqueGuns audit / 5","textPreview":"AgetarouUniqueGuns audit / 5","textChars":28,"textLines":1,"bbox":[1040,660,200,24]}
+{"kind":"shape","id":"sh/at47y1kr","slide":5,"bbox":[42,190,560,172]}
+{"kind":"textbox","id":"sh/3ex0nuxc","slide":5,"text":"CustomModelData 復元","textPreview":"CustomModelData 復元","textChars":18,"textLines":1,"bbox":[64,212,516,34]}
+{"kind":"textbox","id":"sh/szqtcj6t","slide":5,"text":"UniversalWeaponSystem\nプレイヤー単位で originalModelMap を持つため、複数武器・持替・ドロップ時に戻し先がずれる可能性があります。","textPreview":"UniversalWeaponSystem | プレイヤー単位で originalModelMap を持つため、複数武器・持替・ドロップ時に戻し先がずれる可能性があります。","textChars":84,"textLines":2,"bbox":[64,258,516,82]}
+{"kind":"shape","id":"sh/lkjm1cfa","slide":5,"bbox":[678,190,560,172]}
+{"kind":"textbox","id":"sh/ex0nuxc3","slide":5,"text":"武器変化と弾数引き継ぎ","textPreview":"武器変化と弾数引き継ぎ","textChars":11,"textLines":1,"bbox":[700,212,516,34]}
+{"kind":"textbox","id":"sh/3itgfmlk","slide":5,"text":"WeaponsSPMode\ngiveWeapon 後にスロット探索する設計なので、同名武器を複数所持した場合の誤検出を重点確認。","textPreview":"WeaponsSPMode | giveWeapon 後にスロット探索する設計なので、同名武器を複数所持した場合の誤検出を重点確認。","textChars":64,"textLines":2,"bbox":[700,258,516,82]}
+{"kind":"shape","id":"sh/bm58z25k","slide":5,"bbox":[42,400,560,172]}
+{"kind":"textbox","id":"sh/m1cfa9w3","slide":5,"text":"ジャンプ判定","textPreview":"ジャンプ判定","textChars":6,"textLines":1,"bbox":[64,422,516,34]}
+{"kind":"textbox","id":"sh/tsvu9kni","slide":5,"text":"PlayerMoveEvent\nY 座標増加と isOnGround で判定しており、段差・ノックバック・水流などで誤発火する可能性があります。","textPreview":"PlayerMoveEvent | Y 座標増加と isOnGround で判定しており、段差・ノックバック・水流などで誤発火する可能性があります。","textChars":72,"textLines":2,"bbox":[64,468,516,82]}
+{"kind":"shape","id":"sh/47y1kre1","slide":5,"bbox":[678,400,560,172]}
+{"kind":"textbox","id":"sh/bat47y1k","slide":5,"text":"毎 tick 集計","textPreview":"毎 tick 集計","textChars":9,"textLines":1,"bbox":[700,422,516,34]}
+{"kind":"textbox","id":"sh/mp0bi9s3","slide":5,"text":"EPT_Jager / AntiOnePunchMan\n1tick 周期の Map clear は意図が分かりにくく、負荷と正確性を計測して判断したい箇所です。","textPreview":"EPT_Jager / AntiOnePunchMan | 1tick 周期の Map clear は意図が分かりにくく、負荷と正確性を計測して判断したい箇所です。","textChars":80,"textLines":2,"bbox":[700,468,516,82]}
+{"kind":"notes","id":"nt/qxgh5t","slide":5,"text":""}
+{"kind":"slide","id":"sl/uud6ue","slide":6,"title":"追加すると面白い要素","textShapes":13}
+{"kind":"textbox","id":"sh/4vmtwra5","slide":6,"text":"追加すると面白い要素","textPreview":"追加すると面白い要素","textChars":10,"textLines":1,"bbox":[42,36,900,74]}
+{"kind":"textbox","id":"sh/bat47y1k","slide":6,"text":"既存の武器変化・キルストリーク・ActionBar 資産を活かす案です。","textPreview":"既存の武器変化・キルストリーク・ActionBar 資産を活かす案です。","textChars":36,"textLines":1,"bbox":[42,114,720,38]}
+{"kind":"textbox","id":"sh/mp0bi9s3","slide":6,"text":"AgetarouUniqueGuns audit / 6","textPreview":"AgetarouUniqueGuns audit / 6","textChars":28,"textLines":1,"bbox":[1040,660,200,24]}
+{"kind":"shape","id":"sh/tsvu9kni","slide":6,"bbox":[42,184,1196,390]}
+{"kind":"textbox","id":"sh/47y1kre1","slide":6,"text":"武器進化ツリー","textPreview":"武器進化ツリー","textChars":7,"textLines":1,"bbox":[84,214,260,30]}
+{"kind":"textbox","id":"sh/bm58z25k","slide":6,"text":"キル数・ヘッドショット・条件達成で別武器に分岐。プレイヤーごとの育成感を出せます。","textPreview":"キル数・ヘッドショット・条件達成で別武器に分岐。プレイヤーごとの育成感を出せます。","textChars":41,"textLines":1,"bbox":[390,214,760,38]}
+{"kind":"textbox","id":"sh/m1cfa9w3","slide":6,"text":"属性コンボ","textPreview":"属性コンボ","textChars":5,"textLines":1,"bbox":[84,282,260,30]}
+{"kind":"textbox","id":"sh/twra5gbq","slide":6,"text":"炎上後に氷結で爆散、雷後に水で連鎖など。Sorcerers_Rod 系の属性概念と相性が良いです。","textPreview":"炎上後に氷結で爆散、雷後に水で連鎖など。Sorcerers_Rod 系の属性概念と相性が良いです。","textChars":49,"textLines":1,"bbox":[390,282,760,38]}
+{"kind":"textbox","id":"sh/4byhgn29","slide":6,"text":"チーム連携効果","textPreview":"チーム連携効果","textChars":7,"textLines":1,"bbox":[84,350,260,30]}
+{"kind":"textbox","id":"sh/m58z25kb","slide":6,"text":"味方の近くで回復弾、敵陣内でデバフ弾など。LeonGunWar のチーム判定を活かせます。","textPreview":"味方の近くで回復弾、敵陣内でデバフ弾など。LeonGunWar のチーム判定を活かせます。","textChars":45,"textLines":1,"bbox":[390,350,760,38]}
+{"kind":"textbox","id":"sh/bq1oryts","slide":6,"text":"リスク付き必殺技","textPreview":"リスク付き必殺技","textChars":8,"textLines":1,"bbox":[84,418,260,30]}
+{"kind":"textbox","id":"sh/4byhgn29","slide":6,"text":"自傷・弾薬全消費・一定時間射撃不可と引き換えに大技。強すぎる武器にも調整余地ができます。","textPreview":"自傷・弾薬全消費・一定時間射撃不可と引き換えに大技。強すぎる武器にも調整余地ができます。","textChars":44,"textLines":1,"bbox":[390,418,760,38]}
+{"kind":"textbox","id":"sh/twra5gbq","slide":6,"text":"イベント限定ギミック","textPreview":"イベント限定ギミック","textChars":10,"textLines":1,"bbox":[84,486,260,30]}
+{"kind":"textbox","id":"sh/mhk3q5o7","slide":6,"text":"期間限定 YAML を読み込むだけで、クリスマス・ボス戦・PvE 用の特殊効果を切り替えます。","textPreview":"期間限定 YAML を読み込むだけで、クリスマス・ボス戦・PvE 用の特殊効果を切り替えます。","textChars":47,"textLines":1,"bbox":[390,486,760,38]}
+{"kind":"notes","id":"nt/uud6ue","slide":6,"text":""}
+{"kind":"slide","id":"sl/lvldzg","slide":7,"title":"具体的な実行順","textShapes":13}
+{"kind":"textbox","id":"sh/xczed8v6","slide":7,"text":"具体的な実行順","textPreview":"具体的な実行順","textChars":7,"textLines":1,"bbox":[42,36,900,74]}
+{"kind":"textbox","id":"sh/qpg3ex0n","slide":7,"text":"小さく直して、壊れにくい土台を作ってから新要素を足します。","textPreview":"小さく直して、壊れにくい土台を作ってから新要素を足します。","textChars":29,"textLines":1,"bbox":[42,114,720,38]}
+{"kind":"textbox","id":"sh/fa9w3m94","slide":7,"text":"AgetarouUniqueGuns audit / 7","textPreview":"AgetarouUniqueGuns audit / 7","textChars":28,"textLines":1,"bbox":[1040,660,200,24]}
+{"kind":"shape","id":"sh/8jqh0fep","slide":7,"bbox":[70,190,1140,72]}
+{"kind":"textbox","id":"sh/x4nap4r6","slide":7,"text":"Day 1","textPreview":"Day 1","textChars":5,"textLines":1,"bbox":[104,208,150,34]}
+{"kind":"textbox","id":"sh/qd4vmtwr","slide":7,"text":"plugin.yml 修正 / reload 時 clear / 文字化け復旧","textPreview":"plugin.yml 修正 / reload 時 clear / 文字化け復旧","textChars":39,"textLines":1,"bbox":[285,210,820,32]}
+{"kind":"shape","id":"sh/fyxobm58","slide":7,"bbox":[70,272,1140,72]}
+{"kind":"textbox","id":"sh/87ed8bat","slide":7,"text":"Day 2","textPreview":"Day 2","textChars":5,"textLines":1,"bbox":[104,290,150,34]}
+{"kind":"textbox","id":"sh/xs72x4na","slide":7,"text":"設定検証 / debug ログ / 無言 catch 削減","textPreview":"設定検証 / debug ログ / 無言 catch 削減","textChars":29,"textLines":1,"bbox":[285,292,820,32]}
+{"kind":"shape","id":"sh/xkf6dcbu","slide":7,"bbox":[70,354,1140,72]}
+{"kind":"textbox","id":"sh/4zidonyd","slide":7,"text":"Week 1","textPreview":"Week 1","textChars":6,"textLines":1,"bbox":[104,372,150,34]}
+{"kind":"textbox","id":"sh/fepkzupw","slide":7,"text":"Map を UUID 化 / 退出・死亡・disable / cleanup 統一","textPreview":"Map を UUID 化 / 退出・死亡・disable / cleanup 統一","textChars":41,"textLines":1,"bbox":[285,374,820,32]}
+{"kind":"shape","id":"sh/mtwra5gb","slide":7,"bbox":[70,436,1140,72]}
+{"kind":"textbox","id":"sh/xc3ylc7u","slide":7,"text":"Week 2","textPreview":"Week 2","textChars":6,"textLines":1,"bbox":[104,454,150,34]}
+{"kind":"textbox","id":"sh/4r65wjud","slide":7,"text":"武器変化 / 弾数引き継ぎ / 回帰観点を整備","textPreview":"武器変化 / 弾数引き継ぎ / 回帰観点を整備","textChars":23,"textLines":1,"bbox":[285,456,820,32]}
+{"kind":"shape","id":"sh/f6dcbulw","slide":7,"bbox":[70,518,1140,72]}
+{"kind":"textbox","id":"sh/mlkjm1cf","slide":7,"text":"Next","textPreview":"Next","textChars":4,"textLines":1,"bbox":[104,536,150,34]}
+{"kind":"textbox","id":"sh/x0nuxc3y","slide":7,"text":"武器進化ツリー / 属性コンボ / YAML で追加","textPreview":"武器進化ツリー / 属性コンボ / YAML で追加","textChars":26,"textLines":1,"bbox":[285,538,820,32]}
+{"kind":"notes","id":"nt/lvldzg","slide":7,"text":""}
+{"kind":"slide","id":"sl/xgn26v","slide":8,"title":"おすすめコミット","textShapes":7}
+{"kind":"textbox","id":"sh/lc7u54zi","slide":8,"text":"おすすめコミット","textPreview":"おすすめコミット","textChars":8,"textLines":1,"bbox":[42,36,900,74]}
+{"kind":"textbox","id":"sh/eloj2t83","slide":8,"text":"最初の修正単位は、小さく安全に切るのがよいです。","textPreview":"最初の修正単位は、小さく安全に切るのがよいです。","textChars":24,"textLines":1,"bbox":[42,114,720,38]}
+{"kind":"textbox","id":"sh/36hcrmhk","slide":8,"text":"AgetarouUniqueGuns audit / 8","textPreview":"AgetarouUniqueGuns audit / 8","textChars":28,"textLines":1,"bbox":[1040,660,200,24]}
+{"kind":"textbox","id":"sh/wfyxobm5","slide":8,"text":"fix: correct plugin metadata and reload config reset","textPreview":"fix: correct plugin metadata and reload config reset","textChars":52,"textLines":1,"bbox":[90,230,1100,54]}
+{"kind":"textbox","id":"sh/l0rqd4vm","slide":8,"text":"この1コミットで、permissions 誤字修正、reload 前の WeaponConfig.clearWeaponConfig()、読めない運用メッセージの復旧をまとめるのが扱いやすいです。","textPreview":"この1コミットで、permissions 誤字修正、reload 前の WeaponConfig.clearWeaponConfig()、読めない運用メッセージの復旧をまとめるのが扱いやすいです。","textChars":98,"textLines":1,"bbox":[90,320,980,80]}
+{"kind":"textbox","id":"sh/ed8bat47","slide":8,"text":"次のコミット候補: refactor: centralize weapon listener registration","textPreview":"次のコミット候補: refactor: centralize weapon listener registration","textChars":59,"textLines":1,"bbox":[90,455,900,36]}
+{"kind":"textbox","id":"sh/7u54zido","slide":8,"text":"次のコミット候補: chore: add config validation logs for weapon yaml","textPreview":"次のコミット候補: chore: add config validation logs for weapon yaml","textChars":59,"textLines":1,"bbox":[90,500,900,36]}
+{"kind":"notes","id":"nt/xgn26v","slide":8,"text":""}
