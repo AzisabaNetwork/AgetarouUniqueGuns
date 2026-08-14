@@ -23,6 +23,7 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerItemHeldEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.event.player.PlayerToggleSneakEvent;
 import org.bukkit.inventory.ItemStack;
@@ -70,6 +71,9 @@ public class WeaponsSPMode implements Listener {
     // 時間経過武器変更タスク
     private final Map<UUID, BukkitRunnable> timedWeaponChangeTaskMap = new HashMap<>();
 
+    // 時間経過武器変更の期限（プレイヤーごとに対象武器の個体IDと期限tickを保持）
+    private final Map<UUID, TimedWeaponChangeState> timedWeaponChangeStateMap = new HashMap<>();
+
     // 時間経過武器変更のDelay_Barタスク
     private final Map<UUID, BukkitRunnable> timedDelayBarTaskMap = new HashMap<>();
 
@@ -83,6 +87,20 @@ public class WeaponsSPMode implements Listener {
     //Othor
     private final Map<UUID, BukkitRunnable> weaponReturnCooldownBarTaskMap = new HashMap<>();
     private final AugActionBarManager actionBarManager;
+
+    private static final class TimedWeaponChangeState {
+        private final String instanceId;
+        private final String weaponTitle;
+        private final int totalTicks;
+        private final long deadlineTick;
+
+        private TimedWeaponChangeState(String instanceId, String weaponTitle, int totalTicks, long deadlineTick) {
+            this.instanceId = instanceId;
+            this.weaponTitle = weaponTitle;
+            this.totalTicks = totalTicks;
+            this.deadlineTick = deadlineTick;
+        }
+    }
 
     public WeaponsSPMode(AgetarouUniqueGuns plugin) {
         this.plugin = plugin;
@@ -326,14 +344,43 @@ public class WeaponsSPMode implements Listener {
 
         handleDeathStreakReset(p);
 
-        restoreChangedWeaponIfPresent(p, changedWeaponMap.remove(uuid), originalWeaponMap.remove(uuid));
-        restoreChangedWeaponIfPresent(p, killStreakChangedWeaponMap.remove(uuid), killStreakOriginalWeaponMap.remove(uuid));
+        restoreChangedWeaponOnDeath(p, changedWeaponMap.remove(uuid), originalWeaponMap.remove(uuid));
+        restoreChangedWeaponOnDeath(p, killStreakChangedWeaponMap.remove(uuid), killStreakOriginalWeaponMap.remove(uuid));
 
         stopStreakCounter(p);
-        stopTimedWeaponChange(p);
+        TimedWeaponChangeState timedState = timedWeaponChangeStateMap.get(uuid);
+        if (timedState != null && !shouldRestoreOnDeath(timedState.weaponTitle)) {
+            pauseTimedWeaponChange(p);
+        } else {
+            stopTimedWeaponChange(p);
+        }
         stopTimedDelayBar(p);
         jumpMap.remove(uuid);
         lastYMap.remove(uuid);
+    }
+
+    @EventHandler
+    public void onPlayerRespawn(PlayerRespawnEvent event) {
+        Player p = event.getPlayer();
+
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!p.isOnline()) return;
+
+                TimedWeaponChangeState state = timedWeaponChangeStateMap.get(p.getUniqueId());
+                if (state == null) return;
+
+                ItemStack item = findWeaponByInstanceId(p, state.weaponTitle, state.instanceId);
+                if (item == null) {
+                    stopTimedWeaponChange(p);
+                    stopTimedDelayBar(p);
+                    return;
+                }
+
+                resumeTimedWeaponChange(p, state);
+            }
+        }.runTaskLater(plugin, 1L);
     }
 
     // --- ログアウト時クリーンアップ ---
@@ -355,6 +402,7 @@ public class WeaponsSPMode implements Listener {
 
         BukkitRunnable timedTask = timedWeaponChangeTaskMap.remove(uuid);
         if (timedTask != null) timedTask.cancel();
+        timedWeaponChangeStateMap.remove(uuid);
 
         BukkitRunnable delayBarTask = timedDelayBarTaskMap.remove(uuid);
         if (delayBarTask != null) delayBarTask.cancel();
