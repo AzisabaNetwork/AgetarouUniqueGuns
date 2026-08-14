@@ -4,6 +4,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -26,6 +27,10 @@ public class WeaponConfig {
 	 */
 	public static ConfigurationSection getWeaponConfig(String weapon) {
 		return weaponConfigs.get(weapon);
+	}
+
+	public static Map<String, ConfigurationSection> getWeaponConfigs() {
+		return Collections.unmodifiableMap(new HashMap<>(weaponConfigs));
 	}
 
 	/**

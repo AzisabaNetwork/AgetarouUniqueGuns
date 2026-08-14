@@ -77,6 +77,9 @@ public class WeaponsSPMode implements Listener {
     // 時間経過武器変更のDelay_Barタスク
     private final Map<UUID, BukkitRunnable> timedDelayBarTaskMap = new HashMap<>();
 
+    // Join_Changeの遅延インベントリ同期対策タスク
+    private final Map<UUID, Set<BukkitRunnable>> joinChangeTaskMap = new HashMap<>();
+
     // アクションバー一時停止管理（残りtick数）
     private final Map<UUID, Integer> actionBarPauseMap = new HashMap<>();
 
@@ -407,6 +410,8 @@ public class WeaponsSPMode implements Listener {
         BukkitRunnable delayBarTask = timedDelayBarTaskMap.remove(uuid);
         if (delayBarTask != null) delayBarTask.cancel();
 
+        stopJoinChangeTasks(uuid);
+
         BukkitRunnable returnCooldownTask = weaponReturnCooldownBarTaskMap.remove(uuid);
         if (returnCooldownTask != null) returnCooldownTask.cancel();
         actionBarManager.stop(uuid);
@@ -416,55 +421,120 @@ public class WeaponsSPMode implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         Player p = event.getPlayer();
 
-        new BukkitRunnable() {
+        stopJoinChangeTasks(p.getUniqueId());
+        for (Map.Entry<String, ConfigurationSection> entry : WeaponConfig.getWeaponConfigs().entrySet()) {
+            String weaponTitle = entry.getKey();
+            ConfigurationSection root = entry.getValue();
+            if (root == null) continue;
+
+            ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
+            if (changeSection == null || !changeSection.getBoolean("Enable", false)) continue;
+
+            ConfigurationSection joinSection = changeSection.getConfigurationSection("Join_Change");
+            if (joinSection == null || !joinSection.getBoolean("Enable", false)) continue;
+
+            String targetWeapon = joinSection.getString("Target_Weapon");
+            if (targetWeapon == null || targetWeapon.isEmpty() || weaponTitle.equals(targetWeapon)) continue;
+
+            boolean takeoverAmmo = joinSection.getBoolean("Takeover_Ammo",
+                    changeSection.getBoolean("Takeover_Ammo", false));
+            int retryIntervalTicks = Math.max(1, joinSection.getInt("Retry_Interval_Ticks", 10));
+            int retryCount = Math.max(1, joinSection.getInt("Retry_Count", 10));
+
+            startJoinChangeRetry(
+                    p,
+                    weaponTitle,
+                    targetWeapon,
+                    takeoverAmmo,
+                    retryIntervalTicks,
+                    retryCount
+            );
+        }
+    }
+
+    private void startJoinChangeRetry(Player p, String weaponTitle, String targetWeapon,
+                                      boolean takeoverAmmo, int retryIntervalTicks, int retryCount) {
+        UUID uuid = p.getUniqueId();
+        BukkitRunnable task = new BukkitRunnable() {
+            private int attempts;
+
             @Override
             public void run() {
-                if (!p.isOnline()) return;
-
-                PlayerInventory inv = p.getInventory();
-
-                for (int slot = 0; slot < inv.getSize(); slot++) {
-                    ItemStack item = inv.getItem(slot);
-                    String weaponTitle = cs.getWeaponTitle(item);
-                    if (weaponTitle == null) continue;
-
-                    ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
-                    if (root == null) continue;
-
-                    ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
-                    if (changeSection == null || !changeSection.getBoolean("Enable", false)) continue;
-
-                    ConfigurationSection joinSection = changeSection.getConfigurationSection("Join_Change");
-                    if (joinSection == null || !joinSection.getBoolean("Enable", false)) continue;
-
-                    String targetWeapon = joinSection.getString("Target_Weapon");
-                    if (targetWeapon == null || targetWeapon.isEmpty()) continue;
-
-                    boolean takeoverAmmo = joinSection.getBoolean("Takeover_Ammo",
-                            changeSection.getBoolean("Takeover_Ammo", false));
-
-                    replaceWeaponInSlot(p, weaponTitle, targetWeapon, slot, takeoverAmmo);
+                if (!p.isOnline()) {
+                    finishJoinChangeTask(uuid, this);
+                    return;
                 }
-                ItemStack offhand = inv.getItemInOffHand();
-                String offhandTitle = cs.getWeaponTitle(offhand);
-                if (offhandTitle != null) {
-                    ConfigurationSection root = WeaponConfig.getWeaponConfig(offhandTitle);
-                    if (root != null) {
-                        ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
-                        if (changeSection != null && changeSection.getBoolean("Enable", false)) {
-                            ConfigurationSection joinSection = changeSection.getConfigurationSection("Join_Change");
-                            if (joinSection != null && joinSection.getBoolean("Enable", false)) {
-                                String targetWeapon = joinSection.getString("Target_Weapon");
-                                if (targetWeapon != null && !targetWeapon.isEmpty()) {
-                                    boolean takeoverAmmo = joinSection.getBoolean("Takeover_Ammo", false);
-                                    replaceWeaponInOffHand(p, offhandTitle, targetWeapon, takeoverAmmo);
-                                }
-                            }
-                        }
-                    }
+
+                applyJoinWeaponChange(p, weaponTitle, targetWeapon, takeoverAmmo);
+                attempts++;
+
+                if (attempts >= retryCount) {
+                    finishJoinChangeTask(uuid, this);
                 }
             }
-        }.runTaskLater(plugin, 20L);
+        };
+
+        joinChangeTaskMap.computeIfAbsent(uuid, ignored -> new HashSet<>()).add(task);
+        task.runTaskTimer(plugin, retryIntervalTicks, retryIntervalTicks);
+    }
+
+    private void applyJoinWeaponChange(Player p, String weaponTitle, String targetWeapon, boolean takeoverAmmo) {
+        PlayerInventory inv = p.getInventory();
+        int storageSize = inv.getStorageContents().length;
+
+        for (int slot = 0; slot < storageSize; slot++) {
+            ItemStack item = inv.getItem(slot);
+            if (!weaponTitle.equals(cs.getWeaponTitle(item))) continue;
+
+            if (hasConvertedWeaponInstance(p, item, targetWeapon)) {
+                inv.setItem(slot, null);
+                continue;
+            }
+
+            replaceWeaponInSlot(p, weaponTitle, targetWeapon, slot, takeoverAmmo);
+        }
+
+        ItemStack offhand = inv.getItemInOffHand();
+        if (weaponTitle.equals(cs.getWeaponTitle(offhand))) {
+            if (hasConvertedWeaponInstance(p, offhand, targetWeapon)) {
+                inv.setItemInOffHand(null);
+            } else {
+                replaceWeaponInOffHand(p, weaponTitle, targetWeapon, takeoverAmmo);
+            }
+        }
+
+        ItemStack cursor = p.getItemOnCursor();
+        if (weaponTitle.equals(cs.getWeaponTitle(cursor))) {
+            if (hasConvertedWeaponInstance(p, cursor, targetWeapon)) {
+                p.setItemOnCursor(null);
+            } else {
+                replaceWeaponOnCursor(p, weaponTitle, targetWeapon, takeoverAmmo);
+            }
+        }
+    }
+
+    private boolean hasConvertedWeaponInstance(Player p, ItemStack sourceItem, String targetWeapon) {
+        String instanceId = ensureWeaponInstanceId(sourceItem);
+        return instanceId != null && findWeaponByInstanceId(p, targetWeapon, instanceId) != null;
+    }
+
+    private void finishJoinChangeTask(UUID uuid, BukkitRunnable task) {
+        task.cancel();
+
+        Set<BukkitRunnable> tasks = joinChangeTaskMap.get(uuid);
+        if (tasks == null) return;
+
+        tasks.remove(task);
+        if (tasks.isEmpty()) joinChangeTaskMap.remove(uuid);
+    }
+
+    private void stopJoinChangeTasks(UUID uuid) {
+        Set<BukkitRunnable> tasks = joinChangeTaskMap.remove(uuid);
+        if (tasks == null) return;
+
+        for (BukkitRunnable task : tasks) {
+            task.cancel();
+        }
     }
 
     // ===== WhenChangeWeapon =====
