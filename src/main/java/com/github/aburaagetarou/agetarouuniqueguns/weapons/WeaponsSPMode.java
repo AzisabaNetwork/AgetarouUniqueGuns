@@ -646,6 +646,15 @@ public class WeaponsSPMode implements Listener {
         return id;
     }
 
+    private String getWeaponInstanceId(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR || !item.hasItemMeta()) return null;
+
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) return null;
+
+        return meta.getPersistentDataContainer().get(weaponInstanceKey, PersistentDataType.STRING);
+    }
+
     private void setWeaponInstanceId(ItemStack item, String instanceId) {
         if (item == null || item.getType() == Material.AIR || instanceId == null || instanceId.isEmpty()) {
             return;
@@ -1437,6 +1446,21 @@ public class WeaponsSPMode implements Listener {
         }
     }
 
+    private void restoreChangedWeaponOnDeath(Player p, String changedWeapon, String originalWeapon) {
+        if (!shouldRestoreOnDeath(changedWeapon)) return;
+        restoreChangedWeaponIfPresent(p, changedWeapon, originalWeapon);
+    }
+
+    private boolean shouldRestoreOnDeath(String weaponTitle) {
+        if (weaponTitle == null || weaponTitle.isEmpty()) return true;
+
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
+        if (root == null) return true;
+
+        ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
+        return changeSection == null || changeSection.getBoolean("Restore_On_Death", true);
+    }
+
     private void restoreChangedWeaponIfPresent(Player p, String changedWeapon, String originalWeapon) {
         if (changedWeapon == null || originalWeapon == null || changedWeapon.isEmpty() || originalWeapon.isEmpty()) return;
 
@@ -1522,6 +1546,52 @@ public class WeaponsSPMode implements Listener {
         return -1;
     }
 
+    private ItemStack findWeaponByTitle(Player p, String weaponTitle) {
+        PlayerInventory inv = p.getInventory();
+        int slot = findWeaponSlot(inv, weaponTitle);
+        if (slot >= 0) return inv.getItem(slot);
+
+        ItemStack offhand = inv.getItemInOffHand();
+        if (weaponTitle.equals(cs.getWeaponTitle(offhand))) return offhand;
+
+        ItemStack cursor = p.getItemOnCursor();
+        if (weaponTitle.equals(cs.getWeaponTitle(cursor))) return cursor;
+
+        return null;
+    }
+
+    private ItemStack findWeaponByInstanceId(Player p, String weaponTitle, String instanceId) {
+        PlayerInventory inv = p.getInventory();
+        int slot = findWeaponSlotByInstanceId(inv, weaponTitle, instanceId);
+        if (slot >= 0) return inv.getItem(slot);
+
+        ItemStack offhand = inv.getItemInOffHand();
+        if (matchesWeaponInstance(offhand, weaponTitle, instanceId)) return offhand;
+
+        ItemStack cursor = p.getItemOnCursor();
+        if (matchesWeaponInstance(cursor, weaponTitle, instanceId)) return cursor;
+
+        return null;
+    }
+
+    private int findWeaponSlotByInstanceId(PlayerInventory inv, String weaponTitle, String instanceId) {
+        for (int i = 0; i < inv.getSize(); i++) {
+            if (matchesWeaponInstance(inv.getItem(i), weaponTitle, instanceId)) return i;
+        }
+        return -1;
+    }
+
+    private boolean matchesWeaponInstance(ItemStack item, String weaponTitle, String instanceId) {
+        return item != null
+                && item.getType() != Material.AIR
+                && weaponTitle.equals(cs.getWeaponTitle(item))
+                && instanceId.equals(getWeaponInstanceId(item));
+    }
+
+    private long getCurrentServerTick() {
+        return Bukkit.getServer().getCurrentTick();
+    }
+
     private int getWeaponAmmoInSlot(Player p, String weaponName, int slot) {
         ItemStack item = p.getInventory().getItem(slot);
         if (item == null || !weaponName.equals(cs.getWeaponTitle(item))) return -1;
@@ -1579,11 +1649,20 @@ public class WeaponsSPMode implements Listener {
                 && cursor.getType() != Material.AIR
                 && weaponName.equals(cs.getWeaponTitle(cursor));
     }
+
+    private boolean isWeaponOnCursor(Player p, String weaponName, String instanceId) {
+        return matchesWeaponInstance(p.getItemOnCursor(), weaponName, instanceId);
+    }
+
     private boolean isWeaponInOffHand(Player p, String weaponName) {
         ItemStack item = p.getInventory().getItemInOffHand();
         return item != null
                 && item.getType() != Material.AIR
                 && weaponName.equals(cs.getWeaponTitle(item));
+    }
+
+    private boolean isWeaponInOffHand(Player p, String weaponName, String instanceId) {
+        return matchesWeaponInstance(p.getInventory().getItemInOffHand(), weaponName, instanceId);
     }
     private void replaceWeaponInOffHand(Player p, String expectedWeapon, String targetWeapon, boolean takeoverAmmo) {
         new BukkitRunnable() {
