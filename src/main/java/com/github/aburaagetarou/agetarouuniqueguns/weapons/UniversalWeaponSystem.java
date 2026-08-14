@@ -519,7 +519,10 @@ public class UniversalWeaponSystem implements Listener {
                 if (i >= ticks) {
                     String endMsg = sec.getString("End_Action_Bar");
                     if (endMsg != null && !endMsg.isEmpty()) {
-                        p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(endMsg)));
+                        p.spigot().sendMessage(
+                                ChatMessageType.ACTION_BAR,
+                                new TextComponent(translate(endMsg.replace("{time}", "0.0")))
+                        );
                     }
                     String endSound = sec.getString("End_Sound");
                     if (endSound != null && !endSound.isEmpty()) {
@@ -534,12 +537,22 @@ public class UniversalWeaponSystem implements Listener {
                     String actionStr = sec.getString("Action_Bar");
                     if (actionStr != null) {
                         String bar = buildBar((double) i / ticks, sec);
-                        p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(actionStr.replace("{bar}", bar))));
+                        String remainingSeconds = formatRemainingSeconds(ticks - i);
+                        String message = actionStr.replace("{bar}", bar).replace("{time}", remainingSeconds);
+                        p.spigot().sendMessage(
+                                ChatMessageType.ACTION_BAR,
+                                new TextComponent(translate(message))
+                        );
                     }
                 }
                 i += 2;
             }
         }.runTaskTimer(plugin, 0L, 2L);
+    }
+
+    private String formatRemainingSeconds(int remainingTicks) {
+        double seconds = Math.max(0, remainingTicks) / 20.0;
+        return String.format(java.util.Locale.ROOT, "%.1f", seconds);
     }
 
     private String buildBar(double pct, ConfigurationSection sec) {

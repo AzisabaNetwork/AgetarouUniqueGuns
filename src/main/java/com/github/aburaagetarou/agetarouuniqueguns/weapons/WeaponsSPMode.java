@@ -1,6 +1,8 @@
 package com.github.aburaagetarou.agetarouuniqueguns.weapons;
 
+import com.github.aburaagetarou.agetarouuniqueguns.AgetarouUniqueGuns;
 import com.github.aburaagetarou.agetarouuniqueguns.WeaponConfig;
+import com.github.aburaagetarou.agetarouuniqueguns.WeaponRecoveryStore;
 import com.shampaggon.crackshot.CSUtility;
 import com.shampaggon.crackshot.events.WeaponShootEvent;
 import me.DeeCaaD.CrackShotPlus.API;
@@ -32,25 +34,29 @@ import org.bukkit.potion.PotionEffectType;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.event.player.PlayerJoinEvent;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.bukkit.NamespacedKey;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
-
-import java.util.UUID;
 
 public class WeaponsSPMode implements Listener {
 
     private final JavaPlugin plugin;
     private final CSUtility cs = new CSUtility();
     private final NamespacedKey weaponInstanceKey;
+    private final WeaponRecoveryStore recoveryStore;
 
     // クールダウン管理
     private final Map<String, Long> cooldownMap = new HashMap<>();
 
     // キルストリーク管理（streakKey → count）
     private final Map<UUID, Map<String, Integer>> weaponKillStreakMap = new HashMap<>();
+
+    // 武器変更中の個体管理（player UUID → weapon instance IDs）
+    private final Map<UUID, Set<String>> changingWeaponInstances = new HashMap<>();
 
     private final Map<UUID, String> originalWeaponMap = new HashMap<>();
     private final Map<UUID, String> changedWeaponMap = new HashMap<>();
@@ -64,6 +70,9 @@ public class WeaponsSPMode implements Listener {
     // 時間経過武器変更タスク
     private final Map<UUID, BukkitRunnable> timedWeaponChangeTaskMap = new HashMap<>();
 
+    // 時間経過武器変更のDelay_Barタスク
+    private final Map<UUID, BukkitRunnable> timedDelayBarTaskMap = new HashMap<>();
+
     // アクションバー一時停止管理（残りtick数）
     private final Map<UUID, Integer> actionBarPauseMap = new HashMap<>();
 
@@ -75,9 +84,10 @@ public class WeaponsSPMode implements Listener {
     private final Map<UUID, BukkitRunnable> weaponReturnCooldownBarTaskMap = new HashMap<>();
     private final AugActionBarManager actionBarManager;
 
-    public WeaponsSPMode(JavaPlugin plugin) {
+    public WeaponsSPMode(AgetarouUniqueGuns plugin) {
         this.plugin = plugin;
         this.weaponInstanceKey = new NamespacedKey(plugin, "weapon_instance");
+        this.recoveryStore = plugin.getWeaponRecoveryStore();
         this.actionBarManager = new AugActionBarManager(plugin, WeaponsSPMode::colorize);
     }
 
@@ -321,6 +331,7 @@ public class WeaponsSPMode implements Listener {
 
         stopStreakCounter(p);
         stopTimedWeaponChange(p);
+        stopTimedDelayBar(p);
         jumpMap.remove(uuid);
         lastYMap.remove(uuid);
     }
@@ -337,12 +348,16 @@ public class WeaponsSPMode implements Listener {
         killStreakChangedWeaponMap.remove(uuid);
         killStreakOriginalWeaponMap.remove(uuid);
         actionBarPauseMap.remove(uuid);
+        changingWeaponInstances.remove(uuid);
 
         BukkitRunnable counterTask = counterTaskMap.remove(uuid);
         if (counterTask != null) counterTask.cancel();
 
         BukkitRunnable timedTask = timedWeaponChangeTaskMap.remove(uuid);
         if (timedTask != null) timedTask.cancel();
+
+        BukkitRunnable delayBarTask = timedDelayBarTaskMap.remove(uuid);
+        if (delayBarTask != null) delayBarTask.cancel();
 
         BukkitRunnable returnCooldownTask = weaponReturnCooldownBarTaskMap.remove(uuid);
         if (returnCooldownTask != null) returnCooldownTask.cancel();
@@ -553,6 +568,49 @@ public class WeaponsSPMode implements Listener {
         return true;
     }
 
+    /**
+     * Streak_Event.Add_Weapon_Streak により、現在の武器個体へ指定武器のストリークを加算する。
+     * 設定例:
+     * Add_Weapon_Streak:
+     *   Weapon: TargetWeapon
+     *   Amount: 1
+     */
+    private void addConfiguredWeaponStreak(Player p, String sourceWeapon,
+                                           ConfigurationSection eventConfig) {
+        ConfigurationSection addSection = eventConfig.getConfigurationSection("Add_Weapon_Streak");
+        if (addSection == null) return;
+
+        String targetWeapon = addSection.getString("Weapon");
+        int amount = addSection.getInt("Amount", 1);
+        if (targetWeapon == null || targetWeapon.isEmpty() || amount <= 0) return;
+
+        ItemStack sourceItem = p.getInventory().getItemInMainHand();
+        if (sourceItem == null || !sourceWeapon.equals(cs.getWeaponTitle(sourceItem))) return;
+
+        String instanceId = ensureWeaponInstanceId(sourceItem);
+        if (instanceId == null) return;
+
+        ConfigurationSection targetRoot = WeaponConfig.getWeaponConfig(targetWeapon);
+        if (targetRoot == null) return;
+        ConfigurationSection targetStreak = targetRoot.getConfigurationSection("KillStreak");
+        if (targetStreak == null || !targetStreak.getBoolean("Enable", false)) return;
+
+        String storageKey = instanceId + ":" + getStreakKey(targetWeapon);
+        Map<String, Integer> playerStreaks = weaponKillStreakMap.computeIfAbsent(
+                p.getUniqueId(), ignored -> new HashMap<>());
+
+        int current = playerStreaks.getOrDefault(storageKey, 0);
+        int updated = current + amount;
+        if (!targetStreak.getBoolean("Ignore_Limit", false)) {
+            updated = Math.min(updated, targetStreak.getInt("Kill_Count", 5));
+        }
+        playerStreaks.put(storageKey, updated);
+
+        if (sourceWeapon.equals(targetWeapon)) {
+            startStreakCounter(p, sourceWeapon);
+        }
+    }
+
 
     private String getStreakKey(String weaponTitle) {
         ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
@@ -588,6 +646,15 @@ public class WeaponsSPMode implements Listener {
         return id;
     }
 
+    private String getWeaponInstanceId(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR || !item.hasItemMeta()) return null;
+
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) return null;
+
+        return meta.getPersistentDataContainer().get(weaponInstanceKey, PersistentDataType.STRING);
+    }
+
     private void setWeaponInstanceId(ItemStack item, String instanceId) {
         if (item == null || item.getType() == Material.AIR || instanceId == null || instanceId.isEmpty()) {
             return;
@@ -600,6 +667,109 @@ public class WeaponsSPMode implements Listener {
 
         meta.getPersistentDataContainer().set(weaponInstanceKey, PersistentDataType.STRING, instanceId);
         item.setItemMeta(meta);
+    }
+
+    private boolean beginWeaponChange(Player p, String instanceId) {
+        if (instanceId == null || instanceId.isEmpty()) return false;
+
+        Set<String> changingInstances = changingWeaponInstances.computeIfAbsent(
+                p.getUniqueId(), ignored -> new HashSet<>());
+        return changingInstances.add(instanceId);
+    }
+
+    private void finishWeaponChange(Player p, String instanceId) {
+        if (instanceId == null || instanceId.isEmpty()) return;
+
+        UUID uuid = p.getUniqueId();
+        Set<String> changingInstances = changingWeaponInstances.get(uuid);
+        if (changingInstances == null) return;
+
+        changingInstances.remove(instanceId);
+        if (changingInstances.isEmpty()) {
+            changingWeaponInstances.remove(uuid);
+        }
+    }
+
+    private void restoreItemInSlot(Player p, int slot, ItemStack originalItem) {
+        if (originalItem == null || originalItem.getType() == Material.AIR) return;
+
+        PlayerInventory inv = p.getInventory();
+        ItemStack current = inv.getItem(slot);
+        if (current == null || current.getType() == Material.AIR) {
+            inv.setItem(slot, originalItem.clone());
+            return;
+        }
+
+        addOrStoreRecovery(p, originalItem);
+    }
+
+    private void restoreItemInOffHand(Player p, ItemStack originalItem) {
+        if (originalItem == null || originalItem.getType() == Material.AIR) return;
+
+        ItemStack current = p.getInventory().getItemInOffHand();
+        if (current == null || current.getType() == Material.AIR) {
+            p.getInventory().setItemInOffHand(originalItem.clone());
+            return;
+        }
+
+        addOrStoreRecovery(p, originalItem);
+    }
+
+    private void restoreItemOnCursor(Player p, ItemStack originalItem) {
+        if (originalItem == null || originalItem.getType() == Material.AIR) return;
+
+        ItemStack current = p.getItemOnCursor();
+        if (current == null || current.getType() == Material.AIR) {
+            p.setItemOnCursor(originalItem.clone());
+            return;
+        }
+
+        addOrStoreRecovery(p, originalItem);
+    }
+
+    private void addOrStoreRecovery(Player p, ItemStack item) {
+        Map<Integer, ItemStack> leftovers = p.getInventory().addItem(item.clone());
+        for (ItemStack leftover : leftovers.values()) {
+            recoveryStore.store(p, leftover, "weapon-change-rollback-inventory-full");
+        }
+    }
+
+    private Map<Integer, Integer> snapshotWeaponAmounts(PlayerInventory inv, String weaponName) {
+        Map<Integer, Integer> amounts = new HashMap<>();
+        for (int i = 0; i < inv.getSize(); i++) {
+            ItemStack item = inv.getItem(i);
+            if (item != null && weaponName.equals(cs.getWeaponTitle(item))) {
+                amounts.put(i, item.getAmount());
+            }
+        }
+        return amounts;
+    }
+
+    /**
+     * giveWeapon 前後の個数差から、新たに生成された武器1個をインベントリから取り出す。
+     * 同名武器へスタックされた場合も識別できる。
+     */
+    private ItemStack takeGeneratedWeapon(PlayerInventory inv, String weaponName,
+                                          Map<Integer, Integer> amountsBefore) {
+        for (int i = 0; i < inv.getSize(); i++) {
+            ItemStack item = inv.getItem(i);
+            if (item == null || !weaponName.equals(cs.getWeaponTitle(item))) continue;
+
+            int beforeAmount = amountsBefore.getOrDefault(i, 0);
+            if (item.getAmount() <= beforeAmount) continue;
+
+            ItemStack generated = item.clone();
+            generated.setAmount(1);
+
+            if (item.getAmount() == 1) {
+                inv.setItem(i, null);
+            } else {
+                item.setAmount(item.getAmount() - 1);
+                inv.setItem(i, item);
+            }
+            return generated;
+        }
+        return null;
     }
 
     private String getStreakStorageKey(ItemStack item, String weaponTitle) {
@@ -618,7 +788,8 @@ public class WeaponsSPMode implements Listener {
         Map<String, Integer> streaks = weaponKillStreakMap.get(p.getUniqueId());
         if (streaks == null) return;
 
-        String currentWeapon = cs.getWeaponTitle(p.getInventory().getItemInMainHand());
+        ItemStack currentItem = p.getInventory().getItemInMainHand();
+        String currentWeapon = cs.getWeaponTitle(currentItem);
         if (currentWeapon == null) return;
 
         ConfigurationSection root = WeaponConfig.getWeaponConfig(currentWeapon);
@@ -627,7 +798,7 @@ public class WeaponsSPMode implements Listener {
         if (ks == null || !ks.getBoolean("Enable", false)) return;
         if (!ks.getBoolean("Remove_Streak", true)) return;
 
-        String key = getStreakKey(currentWeapon);
+        String key = getStreakStorageKey(currentItem, currentWeapon);
         int removeAmount = ks.getInt("Remove_Several_Streak", -1);
         if (removeAmount == -1) {
             streaks.remove(key);
@@ -837,6 +1008,7 @@ public class WeaponsSPMode implements Listener {
         if (!consumeWeaponKillStreak(p, weaponTitle, consumeAmount)) return;
 
         applyStreakEffects(p, eventConfig);
+        addConfiguredWeaponStreak(p, weaponTitle, eventConfig);
 
         // 武器変更
         String changeWeapon = eventConfig.getString("Change_Weapons");
@@ -909,56 +1081,122 @@ public class WeaponsSPMode implements Listener {
     // ===== 時間経過武器変更 =====
 
     private void startTimedWeaponChange(Player p, String weaponTitle) {
-        stopTimedWeaponChange(p);
-
         ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
-        if (root == null) return;
+        if (root == null) {
+            stopTimedWeaponChange(p);
+            return;
+        }
         ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
-        if (changeSection == null || !changeSection.getBoolean("Enable", false)) return;
+        if (changeSection == null || !changeSection.getBoolean("Enable", false)) {
+            stopTimedWeaponChange(p);
+            return;
+        }
         ConfigurationSection timedSection = changeSection.getConfigurationSection("Timed_Change");
-        if (timedSection == null) return;
+        if (timedSection == null) {
+            stopTimedWeaponChange(p);
+            return;
+        }
 
         int delayTicks = timedSection.getInt("Delay_Ticks", 0);
         String targetWeapon = timedSection.getString("Target_Weapon");
-        if (delayTicks <= 0 || targetWeapon == null || targetWeapon.isEmpty()) return;
+        if (delayTicks <= 0 || targetWeapon == null || targetWeapon.isEmpty()) {
+            stopTimedWeaponChange(p);
+            return;
+        }
 
         UUID uuid = p.getUniqueId();
+        ItemStack timedWeapon = findWeaponByTitle(p, weaponTitle);
+        String instanceId = ensureWeaponInstanceId(timedWeapon);
+        if (instanceId == null) {
+            stopTimedWeaponChange(p);
+            return;
+        }
 
-        // Delay_Bar を即時開始
+        TimedWeaponChangeState currentState = timedWeaponChangeStateMap.get(uuid);
+        TimedWeaponChangeState state;
+        if (currentState != null
+                && currentState.instanceId.equals(instanceId)
+                && currentState.weaponTitle.equals(weaponTitle)) {
+            state = currentState;
+        } else {
+            state = new TimedWeaponChangeState(
+                    instanceId,
+                    weaponTitle,
+                    delayTicks,
+                    getCurrentServerTick() + delayTicks
+            );
+        }
+
+        pauseTimedWeaponChange(p);
+        timedWeaponChangeStateMap.put(uuid, state);
+        resumeTimedWeaponChange(p, state);
+    }
+
+    private void resumeTimedWeaponChange(Player p, TimedWeaponChangeState state) {
+        UUID uuid = p.getUniqueId();
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(state.weaponTitle);
+        if (root == null) {
+            stopTimedWeaponChange(p);
+            return;
+        }
+
+        ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
+        ConfigurationSection timedSection = changeSection != null
+                ? changeSection.getConfigurationSection("Timed_Change")
+                : null;
+        String targetWeapon = timedSection != null ? timedSection.getString("Target_Weapon") : null;
+        if (timedSection == null || targetWeapon == null || targetWeapon.isEmpty()) {
+            stopTimedWeaponChange(p);
+            return;
+        }
+
+        long remainingTicks = Math.max(0L, state.deadlineTick - getCurrentServerTick());
+        int elapsedTicks = (int) Math.max(0L, Math.min((long) state.totalTicks,
+                (long) state.totalTicks - remainingTicks));
+
         ConfigurationSection delayBarSection = timedSection.getConfigurationSection("Delay_Bar");
         if (delayBarSection != null && delayBarSection.getBoolean("Enable", false)) {
-            startTimedDelayBar(p, delayBarSection, delayTicks);
+            startTimedDelayBar(p, delayBarSection, state.totalTicks, elapsedTicks);
         }
 
         BukkitRunnable task = new BukkitRunnable() {
             @Override
             public void run() {
                 if (!p.isOnline()) {
-                    this.cancel();
-                    timedWeaponChangeTaskMap.remove(uuid);
+                    timedWeaponChangeTaskMap.remove(uuid, this);
+                    return;
+                }
+
+                if (p.isDead()) {
+                    timedWeaponChangeTaskMap.remove(uuid, this);
                     return;
                 }
 
                 PlayerInventory inv = p.getInventory();
-                int targetSlot = findWeaponSlot(inv, weaponTitle);
+                int targetSlot = findWeaponSlotByInstanceId(inv, state.weaponTitle, state.instanceId);
                 boolean takeoverAmmo = timedSection.getBoolean("Takeover_Ammo", false);
 
                 if (targetSlot < 0
-                        && !isWeaponInOffHand(p, weaponTitle)
-                        && !isWeaponOnCursor(p, weaponTitle)) {
-                    this.cancel();
-                    timedWeaponChangeTaskMap.remove(uuid);
+                        && !isWeaponInOffHand(p, state.weaponTitle, state.instanceId)
+                        && !isWeaponOnCursor(p, state.weaponTitle, state.instanceId)) {
+                    timedWeaponChangeTaskMap.remove(uuid, this);
+                    timedWeaponChangeStateMap.remove(uuid, state);
+                    stopTimedDelayBar(p);
                     return;
                 }
 
-                trackWeaponChange(p, weaponTitle, targetWeapon, false);
+                timedWeaponChangeTaskMap.remove(uuid, this);
+                timedWeaponChangeStateMap.remove(uuid, state);
+                stopTimedDelayBar(p);
+
+                trackWeaponChange(p, state.weaponTitle, targetWeapon, false);
 
                 if (targetSlot >= 0) {
-                    replaceWeaponInSlot(p, weaponTitle, targetWeapon, targetSlot, takeoverAmmo);
-                } else if (isWeaponInOffHand(p, weaponTitle)) {
-                    replaceWeaponInOffHand(p, weaponTitle, targetWeapon, takeoverAmmo);
+                    replaceWeaponInSlot(p, state.weaponTitle, targetWeapon, targetSlot, takeoverAmmo);
+                } else if (isWeaponInOffHand(p, state.weaponTitle, state.instanceId)) {
+                    replaceWeaponInOffHand(p, state.weaponTitle, targetWeapon, takeoverAmmo);
                 } else {
-                    replaceWeaponOnCursor(p, weaponTitle, targetWeapon, takeoverAmmo);
+                    replaceWeaponOnCursor(p, state.weaponTitle, targetWeapon, takeoverAmmo);
                 }
 
                 String sound = timedSection.getString("Sound");
@@ -970,40 +1208,51 @@ public class WeaponsSPMode implements Listener {
                     actionBarManager.send(p, message, 40, AugActionBarManager.PRIORITY_MESSAGE);
                 }
 
-                this.cancel();
-                timedWeaponChangeTaskMap.remove(uuid);
             }
         };
 
-        task.runTaskLater(plugin, delayTicks);
+        task.runTaskLater(plugin, remainingTicks);
         timedWeaponChangeTaskMap.put(uuid, task);
     }
 
     private void stopTimedWeaponChange(Player p) {
+        pauseTimedWeaponChange(p);
+        timedWeaponChangeStateMap.remove(p.getUniqueId());
+    }
+
+    private void pauseTimedWeaponChange(Player p) {
         BukkitRunnable task = timedWeaponChangeTaskMap.remove(p.getUniqueId());
         if (task != null) task.cancel();
     }
 
     // ===== Delay Bar =====
 
-    private void startTimedDelayBar(Player p, ConfigurationSection sec, int ticks) {
-        new BukkitRunnable() {
-            int i = 0;
+    private void startTimedDelayBar(Player p, ConfigurationSection sec, int ticks, int elapsedTicks) {
+        stopTimedDelayBar(p);
+
+        UUID uuid = p.getUniqueId();
+        BukkitRunnable task = new BukkitRunnable() {
+            int i = Math.max(0, Math.min(ticks, elapsedTicks));
 
             public void run() {
                 if (!p.isOnline()) {
                     this.cancel();
+                    timedDelayBarTaskMap.remove(uuid, this);
                     return;
                 }
 
-                UUID uuid = p.getUniqueId();
                 actionBarPauseMap.put(uuid, 4);
 
                 if (i >= ticks) {
                     String endMsg = sec.getString("End_Action_Bar");
                     if (endMsg != null && !endMsg.isEmpty()) {
                         actionBarPauseMap.put(uuid, 30);
-                        actionBarManager.send(p, endMsg, 30, AugActionBarManager.PRIORITY_BAR);
+                        actionBarManager.send(
+                                p,
+                                endMsg.replace("{time}", "0.0"),
+                                30,
+                                AugActionBarManager.PRIORITY_BAR
+                        );
                     }
 
                     String endSound = sec.getString("End_Sound");
@@ -1012,15 +1261,17 @@ public class WeaponsSPMode implements Listener {
                     }
 
                     this.cancel();
+                    timedDelayBarTaskMap.remove(uuid, this);
                     return;
                 }
 
                 String actionStr = sec.getString("Action_Bar");
                 if (actionStr != null && !actionStr.isEmpty()) {
                     String bar = buildBar((double) i / ticks, sec);
+                    String remainingSeconds = formatRemainingSeconds(ticks - i);
                     actionBarManager.send(
                             p,
-                            actionStr.replace("{bar}", bar),
+                            actionStr.replace("{bar}", bar).replace("{time}", remainingSeconds),
                             8,
                             AugActionBarManager.PRIORITY_BAR
                     );
@@ -1028,8 +1279,22 @@ public class WeaponsSPMode implements Listener {
 
                 i += 2;
             }
-        }.runTaskTimer(plugin, 0L, 2L);
+        };
+
+        task.runTaskTimer(plugin, 0L, 2L);
+        timedDelayBarTaskMap.put(uuid, task);
     }
+
+    private void stopTimedDelayBar(Player p) {
+        BukkitRunnable task = timedDelayBarTaskMap.remove(p.getUniqueId());
+        if (task != null) task.cancel();
+    }
+
+    private String formatRemainingSeconds(int remainingTicks) {
+        double seconds = Math.max(0, remainingTicks) / 20.0;
+        return String.format(java.util.Locale.ROOT, "%.1f", seconds);
+    }
+
     private void startReturnCooldown(Player p, String fromWeapon, String toWeapon, ConfigurationSection sourceSection) {
         ConfigurationSection sec = sourceSection.getConfigurationSection("Return_Cooldown");
         if (sec == null || !sec.getBoolean("Enable", false)) return;
@@ -1181,6 +1446,21 @@ public class WeaponsSPMode implements Listener {
         }
     }
 
+    private void restoreChangedWeaponOnDeath(Player p, String changedWeapon, String originalWeapon) {
+        if (!shouldRestoreOnDeath(changedWeapon)) return;
+        restoreChangedWeaponIfPresent(p, changedWeapon, originalWeapon);
+    }
+
+    private boolean shouldRestoreOnDeath(String weaponTitle) {
+        if (weaponTitle == null || weaponTitle.isEmpty()) return true;
+
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
+        if (root == null) return true;
+
+        ConfigurationSection changeSection = root.getConfigurationSection("WhenChangeWeapon");
+        return changeSection == null || changeSection.getBoolean("Restore_On_Death", true);
+    }
+
     private void restoreChangedWeaponIfPresent(Player p, String changedWeapon, String originalWeapon) {
         if (changedWeapon == null || originalWeapon == null || changedWeapon.isEmpty() || originalWeapon.isEmpty()) return;
 
@@ -1193,49 +1473,53 @@ public class WeaponsSPMode implements Listener {
                 int slot = findWeaponSlot(inv, changedWeapon);
                 if (slot < 0) return;
 
+                ItemStack currentItem = inv.getItem(slot);
+                if (currentItem == null) return;
+                ItemStack originalItem = currentItem.clone();
+
+                String instanceId = ensureWeaponInstanceId(inv.getItem(slot));
+                if (!beginWeaponChange(p, instanceId)) return;
+
                 inv.setItem(slot, null);
                 String restoreWeapon = getReturnBaseWeapon(changedWeapon, originalWeapon);
+                Map<Integer, Integer> amountsBefore = snapshotWeaponAmounts(inv, restoreWeapon);
 
-                // スナップショット取得
-                java.util.Set<Integer> slotsBefore = new java.util.HashSet<>();
-                for (int i = 0; i < inv.getSize(); i++) {
-                    ItemStack it = inv.getItem(i);
-                    if (it != null && restoreWeapon.equals(cs.getWeaponTitle(it))) slotsBefore.add(i);
+                try {
+                    cs.giveWeapon(p, restoreWeapon, 1);
+                } catch (Exception ex) {
+                    restoreItemInSlot(p, slot, originalItem);
+                    finishWeaponChange(p, instanceId);
+                    plugin.getLogger().warning("Failed to restore weapon " + restoreWeapon
+                            + " for " + p.getName() + ": " + ex.getMessage());
+                    return;
                 }
-
-                cs.giveWeapon(p, restoreWeapon, 1);
 
                 new BukkitRunnable() {
                     @Override
                     public void run() {
-                        if (!p.isOnline()) return;
-
-                        // 新規生成スロットのみを対象に
-                        int generatedSlot = -1;
-                        for (int i = 0; i < inv.getSize(); i++) {
-                            ItemStack item = inv.getItem(i);
-                            if (item != null
-                                    && restoreWeapon.equals(cs.getWeaponTitle(item))
-                                    && !slotsBefore.contains(i)) {
-                                generatedSlot = i;
-                                break;
-                            }
-                        }
-
-                        if (generatedSlot < 0) return;
-
-                        ItemStack generated = inv.getItem(generatedSlot);
-                        ItemStack current = inv.getItem(slot);
-
-                        if (current != null && current.getType() != Material.AIR) {
-                            if (generatedSlot != slot) inv.setItem(generatedSlot, null);
+                        if (!p.isOnline()) {
+                            finishWeaponChange(p, instanceId);
                             return;
                         }
 
-                        if (generatedSlot != slot) {
-                            inv.setItem(slot, generated);
-                            inv.setItem(generatedSlot, null);
+                        ItemStack generated = takeGeneratedWeapon(inv, restoreWeapon, amountsBefore);
+                        if (generated == null) {
+                            restoreItemInSlot(p, slot, originalItem);
+                            finishWeaponChange(p, instanceId);
+                            return;
                         }
+
+                        ItemStack current = inv.getItem(slot);
+
+                        if (current != null && current.getType() != Material.AIR) {
+                            restoreItemInSlot(p, slot, originalItem);
+                            finishWeaponChange(p, instanceId);
+                            return;
+                        }
+
+                        setWeaponInstanceId(generated, instanceId);
+                        inv.setItem(slot, generated);
+                        finishWeaponChange(p, instanceId);
                     }
                 }.runTaskLater(plugin, 1L);
             }
@@ -1260,6 +1544,52 @@ public class WeaponsSPMode implements Listener {
             }
         }
         return -1;
+    }
+
+    private ItemStack findWeaponByTitle(Player p, String weaponTitle) {
+        PlayerInventory inv = p.getInventory();
+        int slot = findWeaponSlot(inv, weaponTitle);
+        if (slot >= 0) return inv.getItem(slot);
+
+        ItemStack offhand = inv.getItemInOffHand();
+        if (weaponTitle.equals(cs.getWeaponTitle(offhand))) return offhand;
+
+        ItemStack cursor = p.getItemOnCursor();
+        if (weaponTitle.equals(cs.getWeaponTitle(cursor))) return cursor;
+
+        return null;
+    }
+
+    private ItemStack findWeaponByInstanceId(Player p, String weaponTitle, String instanceId) {
+        PlayerInventory inv = p.getInventory();
+        int slot = findWeaponSlotByInstanceId(inv, weaponTitle, instanceId);
+        if (slot >= 0) return inv.getItem(slot);
+
+        ItemStack offhand = inv.getItemInOffHand();
+        if (matchesWeaponInstance(offhand, weaponTitle, instanceId)) return offhand;
+
+        ItemStack cursor = p.getItemOnCursor();
+        if (matchesWeaponInstance(cursor, weaponTitle, instanceId)) return cursor;
+
+        return null;
+    }
+
+    private int findWeaponSlotByInstanceId(PlayerInventory inv, String weaponTitle, String instanceId) {
+        for (int i = 0; i < inv.getSize(); i++) {
+            if (matchesWeaponInstance(inv.getItem(i), weaponTitle, instanceId)) return i;
+        }
+        return -1;
+    }
+
+    private boolean matchesWeaponInstance(ItemStack item, String weaponTitle, String instanceId) {
+        return item != null
+                && item.getType() != Material.AIR
+                && weaponTitle.equals(cs.getWeaponTitle(item))
+                && instanceId.equals(getWeaponInstanceId(item));
+    }
+
+    private long getCurrentServerTick() {
+        return Bukkit.getServer().getCurrentTick();
     }
 
     private int getWeaponAmmoInSlot(Player p, String weaponName, int slot) {
@@ -1305,12 +1635,12 @@ public class WeaponsSPMode implements Listener {
 
         int ammo = takeoverAmmo ? getWeaponAmmoInSlot(p, expectedWeapon, targetSlot) : -1;
 
-        giveWeaponIntoSlot(p, targetWeapon, targetSlot, false, ammo);
-
-        if (inv.getHeldItemSlot() == targetSlot) {
-            startStreakCounter(p, targetWeapon);
+        giveWeaponIntoSlot(p, targetWeapon, targetSlot, false, ammo, () -> {
+            if (inv.getHeldItemSlot() == targetSlot) {
+                startStreakCounter(p, targetWeapon);
+            }
             startTimedWeaponChange(p, targetWeapon);
-        }
+        });
     }
 
     private boolean isWeaponOnCursor(Player p, String weaponName) {
@@ -1319,11 +1649,20 @@ public class WeaponsSPMode implements Listener {
                 && cursor.getType() != Material.AIR
                 && weaponName.equals(cs.getWeaponTitle(cursor));
     }
+
+    private boolean isWeaponOnCursor(Player p, String weaponName, String instanceId) {
+        return matchesWeaponInstance(p.getItemOnCursor(), weaponName, instanceId);
+    }
+
     private boolean isWeaponInOffHand(Player p, String weaponName) {
         ItemStack item = p.getInventory().getItemInOffHand();
         return item != null
                 && item.getType() != Material.AIR
                 && weaponName.equals(cs.getWeaponTitle(item));
+    }
+
+    private boolean isWeaponInOffHand(Player p, String weaponName, String instanceId) {
+        return matchesWeaponInstance(p.getInventory().getItemInOffHand(), weaponName, instanceId);
     }
     private void replaceWeaponInOffHand(Player p, String expectedWeapon, String targetWeapon, boolean takeoverAmmo) {
         new BukkitRunnable() {
@@ -1337,48 +1676,51 @@ public class WeaponsSPMode implements Listener {
 
                 int ammo = takeoverAmmo ? getWeaponAmmoFromItem(p, expectedWeapon, current) : -1;
                 ItemStack beforeOffhand = current.clone();
+                String instanceId = ensureWeaponInstanceId(current);
+                if (!beginWeaponChange(p, instanceId)) return;
 
                 p.getInventory().setItemInOffHand(null);
 
-                // スナップショット取得
-                java.util.Set<Integer> slotsBefore = new java.util.HashSet<>();
                 PlayerInventory inv = p.getInventory();
-                for (int i = 0; i < inv.getSize(); i++) {
-                    ItemStack it = inv.getItem(i);
-                    if (it != null && targetWeapon.equals(cs.getWeaponTitle(it))) slotsBefore.add(i);
-                }
+                Map<Integer, Integer> amountsBefore = snapshotWeaponAmounts(inv, targetWeapon);
 
-                cs.giveWeapon(p, targetWeapon, 1);
+                try {
+                    cs.giveWeapon(p, targetWeapon, 1);
+                } catch (Exception ex) {
+                    restoreItemInOffHand(p, beforeOffhand);
+                    finishWeaponChange(p, instanceId);
+                    plugin.getLogger().warning("Failed to change offhand weapon to " + targetWeapon
+                            + " for " + p.getName() + ": " + ex.getMessage());
+                    return;
+                }
 
                 new BukkitRunnable() {
                     @Override
                     public void run() {
-                        if (!p.isOnline()) return;
-
-                        // 新規生成スロットのみを対象に
-                        int generatedSlot = -1;
-                        for (int i = 0; i < inv.getSize(); i++) {
-                            ItemStack item = inv.getItem(i);
-                            if (item != null
-                                    && targetWeapon.equals(cs.getWeaponTitle(item))
-                                    && !slotsBefore.contains(i)) {
-                                generatedSlot = i;
-                                break;
-                            }
-                        }
-
-                        if (generatedSlot < 0) {
-                            ItemStack offhandNow = inv.getItemInOffHand();
-                            if (offhandNow == null || offhandNow.getType() == Material.AIR) {
-                                inv.setItemInOffHand(beforeOffhand);
-                            }
+                        if (!p.isOnline()) {
+                            finishWeaponChange(p, instanceId);
                             return;
                         }
 
-                        ItemStack generated = inv.getItem(generatedSlot);
-                        inv.setItem(generatedSlot, null);
+                        ItemStack generated = takeGeneratedWeapon(inv, targetWeapon, amountsBefore);
+                        if (generated == null) {
+                            restoreItemInOffHand(p, beforeOffhand);
+                            finishWeaponChange(p, instanceId);
+                            return;
+                        }
+
+                        ItemStack offhandNow = inv.getItemInOffHand();
+                        if (offhandNow != null && offhandNow.getType() != Material.AIR) {
+                            restoreItemInOffHand(p, beforeOffhand);
+                            finishWeaponChange(p, instanceId);
+                            return;
+                        }
+
+                        setWeaponInstanceId(generated, instanceId);
                         inv.setItemInOffHand(generated);
                         applyWeaponAmmoToOffHand(p, targetWeapon, ammo);
+                        finishWeaponChange(p, instanceId);
+                        startTimedWeaponChange(p, targetWeapon);
                     }
                 }.runTaskLater(plugin, 1L);
             }
@@ -1416,48 +1758,51 @@ public class WeaponsSPMode implements Listener {
 
                 int ammo = takeoverAmmo ? getWeaponAmmoFromItem(p, expectedWeapon, cursor) : -1;
                 ItemStack beforeCursor = cursor.clone();
+                String instanceId = ensureWeaponInstanceId(cursor);
+                if (!beginWeaponChange(p, instanceId)) return;
 
                 p.setItemOnCursor(null);
 
-                // スナップショット取得
                 PlayerInventory inv = p.getInventory();
-                java.util.Set<Integer> slotsBefore = new java.util.HashSet<>();
-                for (int i = 0; i < inv.getSize(); i++) {
-                    ItemStack it = inv.getItem(i);
-                    if (it != null && targetWeapon.equals(cs.getWeaponTitle(it))) slotsBefore.add(i);
-                }
+                Map<Integer, Integer> amountsBefore = snapshotWeaponAmounts(inv, targetWeapon);
 
-                cs.giveWeapon(p, targetWeapon, 1);
+                try {
+                    cs.giveWeapon(p, targetWeapon, 1);
+                } catch (Exception ex) {
+                    restoreItemOnCursor(p, beforeCursor);
+                    finishWeaponChange(p, instanceId);
+                    plugin.getLogger().warning("Failed to change cursor weapon to " + targetWeapon
+                            + " for " + p.getName() + ": " + ex.getMessage());
+                    return;
+                }
 
                 new BukkitRunnable() {
                     @Override
                     public void run() {
-                        if (!p.isOnline()) return;
-
-                        // 新規生成スロットのみを対象に
-                        int generatedSlot = -1;
-                        for (int i = 0; i < inv.getSize(); i++) {
-                            ItemStack item = inv.getItem(i);
-                            if (item != null
-                                    && targetWeapon.equals(cs.getWeaponTitle(item))
-                                    && !slotsBefore.contains(i)) {
-                                generatedSlot = i;
-                                break;
-                            }
-                        }
-
-                        if (generatedSlot < 0) {
-                            ItemStack currentCursor = p.getItemOnCursor();
-                            if (currentCursor == null || currentCursor.getType() == Material.AIR) {
-                                p.setItemOnCursor(beforeCursor);
-                            }
+                        if (!p.isOnline()) {
+                            finishWeaponChange(p, instanceId);
                             return;
                         }
 
-                        ItemStack generated = inv.getItem(generatedSlot);
-                        inv.setItem(generatedSlot, null);
+                        ItemStack generated = takeGeneratedWeapon(inv, targetWeapon, amountsBefore);
+                        if (generated == null) {
+                            restoreItemOnCursor(p, beforeCursor);
+                            finishWeaponChange(p, instanceId);
+                            return;
+                        }
+
+                        ItemStack currentCursor = p.getItemOnCursor();
+                        if (currentCursor != null && currentCursor.getType() != Material.AIR) {
+                            restoreItemOnCursor(p, beforeCursor);
+                            finishWeaponChange(p, instanceId);
+                            return;
+                        }
+
+                        setWeaponInstanceId(generated, instanceId);
                         p.setItemOnCursor(generated);
                         applyWeaponAmmoToCursor(p, targetWeapon, ammo);
+                        finishWeaponChange(p, instanceId);
+                        startTimedWeaponChange(p, targetWeapon);
                     }
                 }.runTaskLater(plugin, 1L);
             }
@@ -1492,63 +1837,6 @@ public class WeaponsSPMode implements Listener {
         } catch (Exception ignored) {}
     }
 
-    private void replaceWeapon(Player p, String weaponName) {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (!p.isOnline()) return;
-
-                PlayerInventory inv = p.getInventory();
-                int replaceSlot = inv.getHeldItemSlot();
-                ItemStack oldItem = inv.getItem(replaceSlot);
-                String oldInstanceId = ensureWeaponInstanceId(oldItem);
-
-                inv.setItem(replaceSlot, null);
-                cs.giveWeapon(p, weaponName, 1);
-
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
-                        if (!p.isOnline()) return;
-
-                        ItemStack found = null;
-                        int foundSlot = -1;
-
-                        for (int i = 0; i < inv.getSize(); i++) {
-                            ItemStack item = inv.getItem(i);
-                            if (item != null && weaponName.equals(cs.getWeaponTitle(item))) {
-                                found = item;
-                                foundSlot = i;
-                                break;
-                            }
-                        }
-
-                        if (found != null) {
-                            if (found.getAmount() > 1) {
-                                found.setAmount(found.getAmount() - 1);
-                                ItemStack single = found.clone();
-                                single.setAmount(1);
-                                setWeaponInstanceId(single, oldInstanceId != null ? oldInstanceId : UUID.randomUUID().toString());
-                                inv.setItem(replaceSlot, single);
-                            } else {
-                                if (foundSlot != replaceSlot) {
-                                    inv.setItem(foundSlot, null);
-                                }
-                                setWeaponInstanceId(found, oldInstanceId != null ? oldInstanceId : UUID.randomUUID().toString());
-                                inv.setItem(replaceSlot, found);
-                            }
-
-                            inv.setHeldItemSlot(replaceSlot);
-                        }
-
-                        startStreakCounter(p, weaponName);
-                        startTimedWeaponChange(p, weaponName);
-                    }
-                }.runTaskLater(plugin, 1L);
-            }
-        }.runTaskLater(plugin, 1L);
-    }
-
     private void replaceWeapon(Player p, String expectedWeapon, String targetWeapon) {
         replaceWeapon(p, expectedWeapon, targetWeapon, false);
     }
@@ -1577,84 +1865,75 @@ public class WeaponsSPMode implements Listener {
                     }
                 }
 
-                inv.setItem(replaceSlot, null);
-                giveWeaponIntoSlot(p, targetWeapon, replaceSlot, true, ammo);
-
-                startStreakCounter(p, targetWeapon);
-                startTimedWeaponChange(p, targetWeapon);
+                giveWeaponIntoSlot(p, targetWeapon, replaceSlot, true, ammo, () -> {
+                    startStreakCounter(p, targetWeapon);
+                    startTimedWeaponChange(p, targetWeapon);
+                });
             }
         }.runTaskLater(plugin, 1L);
     }
 
-    private void giveWeapon(Player p, String weaponName) {
-        PlayerInventory inv = p.getInventory();
-        giveWeaponIntoSlot(p, weaponName, inv.getHeldItemSlot());
-
-        startStreakCounter(p, weaponName);
-        startTimedWeaponChange(p, weaponName);
-    }
-
-    private void giveWeaponIntoSlot(Player p, String weaponName, int targetSlot) {
-        giveWeaponIntoSlot(p, weaponName, targetSlot, true, -1);
-    }
-
-    private void giveWeaponIntoSlot(Player p, String weaponName, int targetSlot, boolean selectTargetSlot) {
-        giveWeaponIntoSlot(p, weaponName, targetSlot, selectTargetSlot, -1);
-    }
-
-    private void giveWeaponIntoSlot(Player p, String weaponName, int targetSlot, boolean selectTargetSlot, int takeoverAmmo) {
+    private void giveWeaponIntoSlot(Player p, String weaponName, int targetSlot,
+                                    boolean selectTargetSlot, int takeoverAmmo,
+                                    Runnable onSuccess) {
         if (!p.isOnline()) return;
 
         PlayerInventory inv = p.getInventory();
-        ItemStack beforeTarget = inv.getItem(targetSlot);
+        ItemStack currentTarget = inv.getItem(targetSlot);
+        ItemStack beforeTarget = currentTarget != null ? currentTarget.clone() : null;
+        String instanceId = ensureWeaponInstanceId(currentTarget);
+        boolean changeLocked = instanceId != null;
+
+        if (changeLocked && !beginWeaponChange(p, instanceId)) return;
+        if (instanceId == null) instanceId = UUID.randomUUID().toString();
+
+        final String targetInstanceId = instanceId;
         inv.setItem(targetSlot, null);
 
-        // giveWeapon呼び出し前に存在する同名武器のスロット番号をスナップショットとして記録
-        java.util.Set<Integer> slotsBefore = new java.util.HashSet<>();
-        for (int i = 0; i < inv.getSize(); i++) {
-            ItemStack it = inv.getItem(i);
-            if (it != null && weaponName.equals(cs.getWeaponTitle(it))) {
-                slotsBefore.add(i);
-            }
-        }
+        Map<Integer, Integer> amountsBefore = snapshotWeaponAmounts(inv, weaponName);
 
-        cs.giveWeapon(p, weaponName, 1);
+        try {
+            cs.giveWeapon(p, weaponName, 1);
+        } catch (Exception ex) {
+            restoreItemInSlot(p, targetSlot, beforeTarget);
+            if (changeLocked) finishWeaponChange(p, targetInstanceId);
+            plugin.getLogger().warning("Failed to give weapon " + weaponName
+                    + " to " + p.getName() + ": " + ex.getMessage());
+            return;
+        }
 
         new BukkitRunnable() {
             @Override
             public void run() {
-                if (!p.isOnline()) return;
-
-                // スナップショットに含まれないスロット = giveWeaponで新たに生成されたもの
-                int generatedSlot = -1;
-                for (int i = 0; i < inv.getSize(); i++) {
-                    ItemStack item = inv.getItem(i);
-                    if (item != null
-                            && weaponName.equals(cs.getWeaponTitle(item))
-                            && !slotsBefore.contains(i)) {
-                        generatedSlot = i;
-                        break;
-                    }
-                }
-
-                if (generatedSlot < 0) {
-                    if (inv.getItem(targetSlot) == null
-                            || inv.getItem(targetSlot).getType() == Material.AIR) {
-                        inv.setItem(targetSlot, beforeTarget);
-                    }
+                if (!p.isOnline()) {
+                    if (changeLocked) finishWeaponChange(p, targetInstanceId);
                     return;
                 }
 
-                ItemStack generated = inv.getItem(generatedSlot);
-                if (generatedSlot != targetSlot) {
-                    inv.setItem(generatedSlot, null);
+                ItemStack generated = takeGeneratedWeapon(inv, weaponName, amountsBefore);
+                if (generated == null) {
+                    restoreItemInSlot(p, targetSlot, beforeTarget);
+                    if (changeLocked) finishWeaponChange(p, targetInstanceId);
+                    return;
                 }
+
+                ItemStack current = inv.getItem(targetSlot);
+                if (current != null && current.getType() != Material.AIR) {
+                    restoreItemInSlot(p, targetSlot, beforeTarget);
+                    if (changeLocked) finishWeaponChange(p, targetInstanceId);
+                    return;
+                }
+
+                setWeaponInstanceId(generated, targetInstanceId);
                 inv.setItem(targetSlot, generated);
                 applyWeaponAmmoToSlot(p, weaponName, targetSlot, takeoverAmmo);
 
                 if (selectTargetSlot) {
                     inv.setHeldItemSlot(targetSlot);
                 }
+
+                if (changeLocked) finishWeaponChange(p, targetInstanceId);
+                if (onSuccess != null) onSuccess.run();
             }
         }.runTaskLater(plugin, 1L);
     }
