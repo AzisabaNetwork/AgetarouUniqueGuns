@@ -729,6 +729,33 @@ public class WeaponsSPMode implements Listener {
         }
     }
 
+    /**
+     * Streak_Event.Restore_Ammo により、現在の武器の弾薬を指定数だけ回復する。
+     * Shoot.Capacity を最大装弾数として扱い、未設定時のみ Reload.Reload_Amount を使用する。
+     */
+    private void restoreConfiguredWeaponAmmo(Player p, String weaponTitle,
+                                             ConfigurationSection eventConfig) {
+        int restoreAmount = eventConfig.getInt("Restore_Ammo", 0);
+        if (restoreAmount <= 0) return;
+
+        ItemStack item = p.getInventory().getItemInMainHand();
+        if (item == null || !weaponTitle.equals(cs.getWeaponTitle(item))) return;
+
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
+        if (root == null) return;
+
+        int maxAmmo = root.getInt("Shoot.Capacity", root.getInt("Reload.Reload_Amount", -1));
+        if (maxAmmo <= 0) return;
+
+        int currentAmmo = getWeaponAmmoFromItem(p, weaponTitle, item);
+        if (currentAmmo < 0) return;
+
+        int restoredAmmo = (int) Math.min((long) maxAmmo, (long) currentAmmo + restoreAmount);
+        try {
+            API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(restoredAmmo), weaponTitle);
+        } catch (Exception ignored) {}
+    }
+
 
     private String getStreakKey(String weaponTitle) {
         ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
@@ -1127,6 +1154,7 @@ public class WeaponsSPMode implements Listener {
 
         applyStreakEffects(p, eventConfig);
         addConfiguredWeaponStreak(p, weaponTitle, eventConfig);
+        restoreConfiguredWeaponAmmo(p, weaponTitle, eventConfig);
 
         // 武器変更
         String changeWeapon = eventConfig.getString("Change_Weapons");
