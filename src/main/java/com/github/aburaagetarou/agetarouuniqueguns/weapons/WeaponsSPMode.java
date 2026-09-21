@@ -730,13 +730,14 @@ public class WeaponsSPMode implements Listener {
     }
 
     /**
-     * Streak_Event.Restore_Ammo により、現在の武器の弾薬を指定数だけ回復する。
+     * Restore_Ammo で指定数を回復し、Fill_Ammo が true なら最大装弾数まで回復する。
      * Shoot.Capacity を最大装弾数として扱い、未設定時のみ Reload.Reload_Amount を使用する。
      */
     private void restoreConfiguredWeaponAmmo(Player p, String weaponTitle,
                                              ConfigurationSection eventConfig) {
+        boolean fillAmmo = eventConfig.getBoolean("Fill_Ammo", false);
         int restoreAmount = eventConfig.getInt("Restore_Ammo", 0);
-        if (restoreAmount <= 0) return;
+        if (!fillAmmo && restoreAmount <= 0) return;
 
         ItemStack item = p.getInventory().getItemInMainHand();
         if (item == null || !weaponTitle.equals(cs.getWeaponTitle(item))) return;
@@ -747,7 +748,9 @@ public class WeaponsSPMode implements Listener {
         int currentAmmo = getWeaponAmmoFromItem(p, weaponTitle, item);
         if (currentAmmo < 0) return;
 
-        int restoredAmmo = (int) Math.min((long) maxAmmo, (long) currentAmmo + restoreAmount);
+        int restoredAmmo = fillAmmo
+                ? maxAmmo
+                : (int) Math.min((long) maxAmmo, (long) currentAmmo + restoreAmount);
         try {
             API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(restoredAmmo), weaponTitle);
         } catch (Exception ignored) {}
@@ -755,14 +758,15 @@ public class WeaponsSPMode implements Listener {
 
     /**
      * 弾薬回復が設定されたイベントは、現在弾数を取得できて上限未満の場合だけ発動できる。
-     * Restore_Ammo がない既存イベントには影響しない。
+     * Restore_Ammo と Fill_Ammo がない既存イベントには影響しない。
      */
     private boolean canRestoreConfiguredWeaponAmmo(Player p, String weaponTitle,
                                                     ConfigurationSection eventConfig) {
-        if (!eventConfig.contains("Restore_Ammo")) return true;
+        boolean fillAmmo = eventConfig.getBoolean("Fill_Ammo", false);
+        if (!fillAmmo && !eventConfig.contains("Restore_Ammo")) return true;
 
         int restoreAmount = eventConfig.getInt("Restore_Ammo", 0);
-        if (restoreAmount <= 0) return false;
+        if (!fillAmmo && restoreAmount <= 0) return false;
 
         ItemStack item = p.getInventory().getItemInMainHand();
         if (item == null || !weaponTitle.equals(cs.getWeaponTitle(item))) return false;
