@@ -779,9 +779,27 @@ public class WeaponsSPMode implements Listener {
     }
 
     private int getWeaponMaxAmmo(String weaponTitle) {
+        int capacity = getCrackShotConfigInt(weaponTitle + ".Shoot.Capacity");
+        if (capacity > 0) return capacity;
+
         ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
-        if (root == null) return -1;
-        return root.getInt("Shoot.Capacity", root.getInt("Reload.Reload_Amount", -1));
+        if (root != null) {
+            capacity = root.getInt("Shoot.Capacity", -1);
+            if (capacity > 0) return capacity;
+        }
+
+        int reloadAmount = getCrackShotConfigInt(weaponTitle + ".Reload.Reload_Amount");
+        if (reloadAmount > 0) return reloadAmount;
+
+        return root != null ? root.getInt("Reload.Reload_Amount", -1) : -1;
+    }
+
+    private int getCrackShotConfigInt(String path) {
+        try {
+            return API.getCSDirector().getInt(path);
+        } catch (Exception ignored) {
+            return -1;
+        }
     }
 
 
