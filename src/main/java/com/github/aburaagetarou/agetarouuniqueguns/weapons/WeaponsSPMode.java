@@ -741,10 +741,7 @@ public class WeaponsSPMode implements Listener {
         ItemStack item = p.getInventory().getItemInMainHand();
         if (item == null || !weaponTitle.equals(cs.getWeaponTitle(item))) return;
 
-        ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
-        if (root == null) return;
-
-        int maxAmmo = root.getInt("Shoot.Capacity", root.getInt("Reload.Reload_Amount", -1));
+        int maxAmmo = getWeaponMaxAmmo(weaponTitle);
         if (maxAmmo <= 0) return;
 
         int currentAmmo = getWeaponAmmoFromItem(p, weaponTitle, item);
@@ -754,6 +751,33 @@ public class WeaponsSPMode implements Listener {
         try {
             API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(restoredAmmo), weaponTitle);
         } catch (Exception ignored) {}
+    }
+
+    /**
+     * 弾薬回復が設定されたイベントは、現在弾数を取得できて上限未満の場合だけ発動できる。
+     * Restore_Ammo がない既存イベントには影響しない。
+     */
+    private boolean canRestoreConfiguredWeaponAmmo(Player p, String weaponTitle,
+                                                    ConfigurationSection eventConfig) {
+        if (!eventConfig.contains("Restore_Ammo")) return true;
+
+        int restoreAmount = eventConfig.getInt("Restore_Ammo", 0);
+        if (restoreAmount <= 0) return false;
+
+        ItemStack item = p.getInventory().getItemInMainHand();
+        if (item == null || !weaponTitle.equals(cs.getWeaponTitle(item))) return false;
+
+        int maxAmmo = getWeaponMaxAmmo(weaponTitle);
+        if (maxAmmo <= 0) return false;
+
+        int currentAmmo = getWeaponAmmoFromItem(p, weaponTitle, item);
+        return currentAmmo >= 0 && currentAmmo < maxAmmo;
+    }
+
+    private int getWeaponMaxAmmo(String weaponTitle) {
+        ConfigurationSection root = WeaponConfig.getWeaponConfig(weaponTitle);
+        if (root == null) return -1;
+        return root.getInt("Shoot.Capacity", root.getInt("Reload.Reload_Amount", -1));
     }
 
 
@@ -1141,6 +1165,8 @@ public class WeaponsSPMode implements Listener {
         return false;
     }
     private void executeStreakEvent(Player p, String weaponTitle, ConfigurationSection eventConfig, boolean isMaxEvent, String triggerAction) {
+        if (!canRestoreConfiguredWeaponAmmo(p, weaponTitle, eventConfig)) return;
+
         // 消費量の算出
         int consumeAmount;
         if (isMaxEvent) {
