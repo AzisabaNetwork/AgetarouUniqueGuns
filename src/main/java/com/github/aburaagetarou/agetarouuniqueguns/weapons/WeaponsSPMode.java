@@ -4,6 +4,7 @@ import com.github.aburaagetarou.agetarouuniqueguns.AgetarouUniqueGuns;
 import com.github.aburaagetarou.agetarouuniqueguns.WeaponConfig;
 import com.github.aburaagetarou.agetarouuniqueguns.WeaponRecoveryStore;
 import com.shampaggon.crackshot.CSUtility;
+import com.shampaggon.crackshot.events.WeaponReloadEvent;
 import com.shampaggon.crackshot.events.WeaponShootEvent;
 import me.DeeCaaD.CrackShotPlus.API;
 import net.azisaba.lgw.core.events.PlayerKillEvent;
@@ -208,6 +209,15 @@ public class WeaponsSPMode implements Listener {
                 }
             }
         }.runTaskLater(plugin, 1L);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onReload(WeaponReloadEvent event) {
+        Player p = event.getPlayer();
+        int reloadTicks = Math.max(1, event.getReloadDuration()) + 2;
+
+        actionBarPauseMap.put(p.getUniqueId(), reloadTicks);
+        actionBarManager.suppress(p, reloadTicks);
     }
 
     // --- オフハンドキー（Fキー）検知 ---

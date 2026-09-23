@@ -32,6 +32,7 @@ public class AugActionBarManager {
     private final Map<UUID, Integer> priorityMap = new ConcurrentHashMap<>();
     private final Map<UUID, BukkitRunnable> taskMap = new ConcurrentHashMap<>();
     private final Map<UUID, Integer> bypassMap = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> suppressedUntilMap = new ConcurrentHashMap<>();
 
     public AugActionBarManager(JavaPlugin plugin, Function<String, String> colorizer) {
         this.plugin = plugin;
@@ -43,6 +44,8 @@ public class AugActionBarManager {
         if (player == null || message == null || message.isEmpty() || ticks <= 0) return;
 
         UUID uuid = player.getUniqueId();
+        if (isSuppressed(uuid)) return;
+
         long now = System.currentTimeMillis();
         long currentUntil = untilMap.getOrDefault(uuid, 0L);
         int currentPriority = priorityMap.getOrDefault(uuid, 0);
@@ -62,6 +65,10 @@ public class AugActionBarManager {
             public void run() {
                 if (!player.isOnline()) {
                     stop(uuid);
+                    return;
+                }
+
+                if (isSuppressed(uuid)) {
                     return;
                 }
 
@@ -94,6 +101,7 @@ public class AugActionBarManager {
         untilMap.remove(uuid);
         priorityMap.remove(uuid);
         bypassMap.remove(uuid);
+        suppressedUntilMap.remove(uuid);
 
         BukkitRunnable task = taskMap.remove(uuid);
         if (task != null) task.cancel();
@@ -108,6 +116,30 @@ public class AugActionBarManager {
     public boolean isActive(Player player) {
         if (player == null) return false;
         return untilMap.getOrDefault(player.getUniqueId(), 0L) > System.currentTimeMillis();
+    }
+
+    public void suppress(Player player, int ticks) {
+        if (player == null || ticks <= 0) return;
+
+        UUID uuid = player.getUniqueId();
+        long until = System.currentTimeMillis() + (ticks * 50L);
+        suppressedUntilMap.merge(uuid, until, Math::max);
+
+        textMap.remove(uuid);
+        untilMap.remove(uuid);
+        priorityMap.remove(uuid);
+        bypassMap.remove(uuid);
+
+        BukkitRunnable task = taskMap.remove(uuid);
+        if (task != null) task.cancel();
+    }
+
+    private boolean isSuppressed(UUID uuid) {
+        long until = suppressedUntilMap.getOrDefault(uuid, 0L);
+        if (until > System.currentTimeMillis()) return true;
+
+        suppressedUntilMap.remove(uuid);
+        return false;
     }
 
     private void setupProtocolLibGuard() {
