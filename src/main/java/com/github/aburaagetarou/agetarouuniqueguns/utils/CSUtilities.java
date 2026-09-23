@@ -1,10 +1,10 @@
 package com.github.aburaagetarou.agetarouuniqueguns.utils;
 
 import com.github.aburaagetarou.agetarouuniqueguns.WeaponConfig;
-import me.DeeCaaD.CrackShotPlus.API;
-import me.DeeCaaD.CrackShotPlus.CSPPlayer;
-import me.DeeCaaD.CrackShotPlus.Events.WeaponSkinEvent;
-import me.DeeCaaD.CrackShotPlus.Skin;
+import net.azisaba.crackshotplus.API;
+import net.azisaba.crackshotplus.CSPPlayer;
+import net.azisaba.crackshotplus.events.WeaponSkinEvent;
+import net.azisaba.crackshotplus.Skin;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
@@ -41,7 +41,7 @@ public class CSUtilities {
 	 * @return ItemStack スキン適用後のアイテム
 	 */
 	public static ItemStack applySkin(Player player, ItemStack item, String skinName, Skin.SkinType skinType) {
-		String weaponTitle = API.getCSUtility().getWeaponTitle(item);
+		String weaponTitle = API.cs().getWeaponTitle(item);
 		if(weaponTitle == null) return null;
 
 		// 指定された名前のスキンを取得

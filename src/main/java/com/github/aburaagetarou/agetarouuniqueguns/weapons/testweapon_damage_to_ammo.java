@@ -2,8 +2,8 @@ package com.github.aburaagetarou.agetarouuniqueguns.weapons;
 
 import com.github.aburaagetarou.agetarouuniqueguns.WeaponConfig;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
-import com.shampaggon.crackshot.events.WeaponDamageEntityEvent; // CrackShotのイベントをインポート
-import me.DeeCaaD.CrackShotPlus.API;
+import net.azisaba.crackshot.events.WeaponDamageEntityEvent; // CrackShotのイベントをインポート
+import net.azisaba.crackshotplus.API;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -76,7 +76,7 @@ public class testweapon_damage_to_ammo implements Listener {
         ItemStack weaponItem = attacker.getInventory().getItemInMainHand();
 
         // 手に持っているアイテムが本当にその武器か念のため確認 (名前チェック)
-        String heldWeaponTitle = API.getCSUtility().getWeaponTitle(weaponItem);
+        String heldWeaponTitle = API.cs().getWeaponTitle(weaponItem);
         if (heldWeaponTitle == null || !WEAPON_NAME.equals(CSUtilities.getOriginalWeaponName(heldWeaponTitle))) {
             return;
         }
@@ -85,11 +85,11 @@ public class testweapon_damage_to_ammo implements Listener {
 
         // 現在の弾数を取得 (CrackShotPlusのAPIを使用)
         // [10/30] のような表記から左側の数字を取得します
-        int currentAmmo = API.getCSDirector().getAmmoBetweenBrackets(attacker, heldWeaponTitle, weaponItem);
+        int currentAmmo = API.getCrackShot().getAmmoBetweenBrackets(attacker, heldWeaponTitle, weaponItem);
 
         // 弾数を+1して更新
         // replaceBracketsはアイテムのDisplay Nameの数字部分を書き換えます
-        API.getCSDirector().csminion.replaceBrackets(weaponItem, String.valueOf(currentAmmo + 1), heldWeaponTitle);
+        API.getCrackShot().csminion.replaceBrackets(weaponItem, String.valueOf(currentAmmo + 1), heldWeaponTitle);
 
         // 必要であれば効果音やメッセージを追加
         attacker.sendMessage("§a弾薬が回復しました！");

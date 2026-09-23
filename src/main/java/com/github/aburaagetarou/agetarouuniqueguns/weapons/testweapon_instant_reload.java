@@ -1,7 +1,7 @@
 package com.github.aburaagetarou.agetarouuniqueguns.weapons;
 
 import com.github.aburaagetarou.agetarouuniqueguns.WeaponConfig;
-import com.shampaggon.crackshot.events.WeaponReloadEvent;
+import net.azisaba.crackshot.events.WeaponReloadEvent;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.event.EventHandler;

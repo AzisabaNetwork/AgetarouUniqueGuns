@@ -5,9 +5,9 @@ import com.github.aburaagetarou.agetarouuniqueguns.WeaponConfig;
 import com.github.aburaagetarou.agetarouuniqueguns.listeners.CSListeners;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.Utilities;
-import com.shampaggon.crackshot.events.WeaponDamageEntityEvent;
-import com.shampaggon.crackshot.events.WeaponPreShootEvent;
-import me.DeeCaaD.CrackShotPlus.API;
+import net.azisaba.crackshot.events.WeaponDamageEntityEvent;
+import net.azisaba.crackshot.events.WeaponPreShootEvent;
+import net.azisaba.crackshotplus.API;
 import net.azisaba.lgw.core.LeonGunWar;
 import net.azisaba.lgw.core.events.PlayerKillEvent;
 import net.azisaba.lgw.core.util.BattleTeam;
@@ -25,7 +25,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.player.PlayerAttemptPickupItemEvent;
-import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.EquipmentSlotGroup;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataContainer;
@@ -43,6 +43,7 @@ import java.util.*;
  */
 public class TensinoDantouDai extends WeaponBase {
 	private final static UUID SPEED_MODIFIER_UUID = UUID.nameUUIDFromBytes("TensinoDantouDai_Speed".getBytes());
+	private final static NamespacedKey SPEED_MODIFIER_KEY = NamespacedKey.minecraft(SPEED_MODIFIER_UUID.toString());
 
 	public final static String WEAPON_NAME = "TensinoDantouDai";
 	public final static String WEAPON_MELEE_NAME = "TensinoDantouDai_knife";
@@ -77,7 +78,7 @@ public class TensinoDantouDai extends WeaponBase {
 		set(KEY_POTION_EFFECTS + ".3.Duration", 300);
 		set(KEY_POTION_EFFECTS + ".3.Amplifier", 0);
 		set(KEY_POTION_EFFECTS + ".3.Material", Material.GREEN_SHULKER_BOX);
-		set(KEY_POTION_EFFECTS + ".4.Type", PotionEffectType.DAMAGE_RESISTANCE.getName());
+		set(KEY_POTION_EFFECTS + ".4.Type", PotionEffectType.RESISTANCE.getName());
 		set(KEY_POTION_EFFECTS + ".4.Duration", 100);
 		set(KEY_POTION_EFFECTS + ".4.Amplifier", 0);
 		set(KEY_POTION_EFFECTS + ".4.Material", Material.GRAY_SHULKER_BOX);
@@ -115,7 +116,7 @@ public class TensinoDantouDai extends WeaponBase {
 	 */
 	private static boolean updateWeaponData(ItemStack item, Player player) {
 		if(item == null) return false;
-		String weaponTitle = API.getCSUtility().getWeaponTitle(item);
+		String weaponTitle = API.cs().getWeaponTitle(item);
 		if(weaponTitle == null) return false;
 		String orgWeaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
 		if(!WEAPON_NAME.equals(orgWeaponTitle)) return false;
@@ -123,16 +124,16 @@ public class TensinoDantouDai extends WeaponBase {
 		// アイテムの移動速度を設定
 		ItemMeta meta = item.getItemMeta();
 		if(meta.getAttributeModifiers() != null) {
-			for(AttributeModifier modifier : meta.getAttributeModifiers().get(Attribute.GENERIC_MOVEMENT_SPEED)) {
-				if(modifier.getUniqueId().equals(SPEED_MODIFIER_UUID)) {
-					meta.removeAttributeModifier(Attribute.GENERIC_MOVEMENT_SPEED, modifier);
+			for(AttributeModifier modifier : meta.getAttributeModifiers().get(Attribute.MOVEMENT_SPEED)) {
+				if(modifier.getKey().equals(SPEED_MODIFIER_KEY)) {
+					meta.removeAttributeModifier(Attribute.MOVEMENT_SPEED, modifier);
 				}
 			}
 			item.setItemMeta(meta);
 		}
 		if(killCounts.getOrDefault(player, 0) >= 2) {
-			AttributeModifier modifier = new AttributeModifier(SPEED_MODIFIER_UUID, "generic.movement_speed", getConfig(KEY_KNIFE_MOVEMENT_SPEED_MODIFIER), AttributeModifier.Operation.ADD_NUMBER, EquipmentSlot.HAND);
-			meta.addAttributeModifier(Attribute.GENERIC_MOVEMENT_SPEED, modifier);
+			AttributeModifier modifier = new AttributeModifier(SPEED_MODIFIER_KEY, getConfig(KEY_KNIFE_MOVEMENT_SPEED_MODIFIER), AttributeModifier.Operation.ADD_NUMBER, EquipmentSlotGroup.MAINHAND);
+			meta.addAttributeModifier(Attribute.MOVEMENT_SPEED, modifier);
 			item.setItemMeta(meta);
 		}
 		return true;

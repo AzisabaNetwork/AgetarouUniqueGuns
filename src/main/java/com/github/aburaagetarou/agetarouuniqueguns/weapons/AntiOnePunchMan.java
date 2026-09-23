@@ -3,9 +3,9 @@ package com.github.aburaagetarou.agetarouuniqueguns.weapons;
 import com.github.aburaagetarou.agetarouuniqueguns.AgetarouUniqueGuns;
 import com.github.aburaagetarou.agetarouuniqueguns.WeaponConfig;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
-import com.shampaggon.crackshot.events.WeaponDamageEntityEvent;
-import com.shampaggon.crackshot.events.WeaponShootEvent;
-import me.DeeCaaD.CrackShotPlus.API;
+import net.azisaba.crackshot.events.WeaponDamageEntityEvent;
+import net.azisaba.crackshot.events.WeaponShootEvent;
+import net.azisaba.crackshotplus.API;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
@@ -177,7 +177,7 @@ public class AntiOnePunchMan implements Listener {
      * @param weaponTitle 武器の識別称号
      */
     public static void apply(Player player, String weaponTitle) {
-        String weaponName = API.getCSDirector().getString(weaponTitle + ".Item_Information.Item_Name");
+        String weaponName = API.getCrackShot().data.getString(weaponTitle + ".Item_Information.Item_Name");
         if (weaponName == null) weaponName = WEAPON_NAME;
         final String finalWeaponName = weaponName;
         int duration = getEffectDuration();
@@ -217,7 +217,7 @@ public class AntiOnePunchMan implements Listener {
             readyPlayers.remove(player); // 待機状態を解除
 
             // メインハンドの武器のタイトルを取得してapplyに渡す
-            String weaponTitle = API.getCSUtility().getWeaponTitle(player.getInventory().getItemInMainHand());
+            String weaponTitle = API.cs().getWeaponTitle(player.getInventory().getItemInMainHand());
             if (weaponTitle != null) {
                 apply(player, weaponTitle);
             }

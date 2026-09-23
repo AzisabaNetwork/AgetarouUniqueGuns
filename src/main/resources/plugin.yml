@@ -1,14 +1,13 @@
 name: AgetarouUniqueGuns
 version: ${project.version}
 main: com.github.aburaagetarou.agetarouuniqueguns.AgetarouUniqueGuns
-api-version: 1.16
+api-version: '1.21.11'
 depend:
   - CrackShot
   - CrackShotPlus
-  - LeonCSAddon
   - LeonGunWar
   - ProtocolLib
-permisssions:
+permissions:
   agetarouuniqueguns.help:
     description: AgetarouUniqueGuns help
     default: op

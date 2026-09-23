@@ -17,7 +17,9 @@ public class StreakParticleEffect {
         String particleName = sec.getString("Particle", "FLAME");
         Particle particle;
         try {
-            particle = Particle.valueOf(particleName.toUpperCase());
+            particle = "REDSTONE".equalsIgnoreCase(particleName)
+                    ? Particle.DUST
+                    : Particle.valueOf(particleName.toUpperCase());
         } catch (IllegalArgumentException e) {
             return;
         }
@@ -143,7 +145,7 @@ public class StreakParticleEffect {
         double offsetZ = sec.getDouble("Offset_Z", 0.0);
         double extra = sec.getDouble("Extra", 0.0);
 
-        if (particle == Particle.REDSTONE) {
+        if (particle == Particle.DUST) {
             int r = clamp(sec.getInt("Red", 255));
             int g = clamp(sec.getInt("Green", 255));
             int b = clamp(sec.getInt("Blue", 255));

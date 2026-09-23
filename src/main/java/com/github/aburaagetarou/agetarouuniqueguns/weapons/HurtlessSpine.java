@@ -5,13 +5,14 @@ import com.github.aburaagetarou.agetarouuniqueguns.WeaponConfig;
 import com.github.aburaagetarou.agetarouuniqueguns.listeners.CSListeners;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.Utilities;
-import com.shampaggon.crackshot.events.WeaponPreShootEvent;
-import com.shampaggon.crackshot.events.WeaponReloadCompleteEvent;
-import com.shampaggon.crackshot.events.WeaponScopeEvent;
-import me.DeeCaaD.CrackShotPlus.API;
-import me.DeeCaaD.CrackShotPlus.Skin;
+import net.azisaba.crackshot.events.WeaponPreShootEvent;
+import net.azisaba.crackshot.events.WeaponReloadCompleteEvent;
+import net.azisaba.crackshot.events.WeaponScopeEvent;
+import net.azisaba.crackshotplus.API;
+import net.azisaba.crackshotplus.Skin;
 import net.azisaba.lgw.core.events.PlayerKillEvent;
 import org.bukkit.Sound;
+import org.bukkit.NamespacedKey;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.configuration.ConfigurationSection;
@@ -21,7 +22,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
-import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.EquipmentSlotGroup;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
@@ -37,6 +38,7 @@ import java.util.UUID;
  */
 public class HurtlessSpine extends WeaponBase {
 	private final static UUID SPEED_MODIFIER_UUID = UUID.nameUUIDFromBytes("HurtlessSpine_Speed".getBytes());
+	private final static NamespacedKey SPEED_MODIFIER_KEY = NamespacedKey.minecraft(SPEED_MODIFIER_UUID.toString());
 
 	public final static String WEAPON_NAME = "HurtlessSpine";
 
@@ -133,7 +135,7 @@ public class HurtlessSpine extends WeaponBase {
 	 */
 	private static boolean updateWeaponData(ItemStack item, Player player) {
 		if(item == null) return false;
-		String weaponTitle = API.getCSUtility().getWeaponTitle(item);
+		String weaponTitle = API.cs().getWeaponTitle(item);
 		if(weaponTitle == null) return false;
 		String orgWeaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
 		if(!WEAPON_NAME.equals(orgWeaponTitle)) return false;
@@ -143,26 +145,26 @@ public class HurtlessSpine extends WeaponBase {
 		if(killCounts.getOrDefault(player, 0) < 2){
 			boolean needModifier = true;
 			if(meta.getAttributeModifiers() != null) {
-				for(AttributeModifier modifier : meta.getAttributeModifiers().get(Attribute.GENERIC_MOVEMENT_SPEED)) {
-					if(modifier.getUniqueId().equals(SPEED_MODIFIER_UUID)) {
+				for(AttributeModifier modifier : meta.getAttributeModifiers().get(Attribute.MOVEMENT_SPEED)) {
+					if(modifier.getKey().equals(SPEED_MODIFIER_KEY)) {
 						if(Double.compare(modifier.getAmount(), getMovementSpeed()) == 0) {
 							needModifier = false;
 							break;
 						}
-						meta.removeAttributeModifier(Attribute.GENERIC_MOVEMENT_SPEED, modifier);
+						meta.removeAttributeModifier(Attribute.MOVEMENT_SPEED, modifier);
 					}
 				}
 			}
 			if(needModifier) {
-				AttributeModifier modifier = new AttributeModifier(SPEED_MODIFIER_UUID, "generic.movement_speed", getMovementSpeed(), AttributeModifier.Operation.ADD_NUMBER, EquipmentSlot.HAND);
-				meta.addAttributeModifier(Attribute.GENERIC_MOVEMENT_SPEED, modifier);
+				AttributeModifier modifier = new AttributeModifier(SPEED_MODIFIER_KEY, getMovementSpeed(), AttributeModifier.Operation.ADD_NUMBER, EquipmentSlotGroup.MAINHAND);
+				meta.addAttributeModifier(Attribute.MOVEMENT_SPEED, modifier);
 			}
 		}
 		else {
 			if(meta.getAttributeModifiers() != null) {
-				for(AttributeModifier modifier : meta.getAttributeModifiers().get(Attribute.GENERIC_MOVEMENT_SPEED)) {
-					if(modifier.getUniqueId().equals(SPEED_MODIFIER_UUID)) {
-						meta.removeAttributeModifier(Attribute.GENERIC_MOVEMENT_SPEED, modifier);
+				for(AttributeModifier modifier : meta.getAttributeModifiers().get(Attribute.MOVEMENT_SPEED)) {
+					if(modifier.getKey().equals(SPEED_MODIFIER_KEY)) {
+						meta.removeAttributeModifier(Attribute.MOVEMENT_SPEED, modifier);
 					}
 				}
 			}

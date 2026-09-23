@@ -3,13 +3,14 @@ package com.github.aburaagetarou.agetarouuniqueguns.weapons;
 import com.github.aburaagetarou.agetarouuniqueguns.AgetarouUniqueGuns;
 import com.github.aburaagetarou.agetarouuniqueguns.WeaponConfig;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
-import com.shampaggon.crackshot.events.WeaponPreShootEvent;
-import com.shampaggon.crackshot.events.WeaponReloadCompleteEvent;
-import com.shampaggon.crackshot.events.WeaponReloadEvent;
-import me.DeeCaaD.CrackShotPlus.API;
+import net.azisaba.crackshot.events.WeaponPreShootEvent;
+import net.azisaba.crackshot.events.WeaponReloadCompleteEvent;
+import net.azisaba.crackshot.events.WeaponReloadEvent;
+import net.azisaba.crackshotplus.API;
 import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
+import org.bukkit.NamespacedKey;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.configuration.ConfigurationSection;
@@ -19,7 +20,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerItemHeldEvent;
-import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.EquipmentSlotGroup;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.scheduler.BukkitTask;
@@ -35,6 +36,7 @@ import java.util.UUID;
  */
 public class Sorcerers_Rod implements Listener {
 	private final static UUID SPEED_MODIFIER_UUID = UUID.nameUUIDFromBytes("Sorcerers_Rod_Speed".getBytes());
+	private final static NamespacedKey SPEED_MODIFIER_KEY = NamespacedKey.minecraft(SPEED_MODIFIER_UUID.toString());
 
 	public final static String WEAPON_NAME = "Sorcerers_Rod";
 
@@ -98,16 +100,16 @@ public class Sorcerers_Rod implements Listener {
 	public static void refillMana() {
 		for(Player player : Bukkit.getOnlinePlayers()) {
 			ItemStack item = player.getInventory().getItemInMainHand();
-			String weaponTitle = API.getCSUtility().getWeaponTitle(item);
+			String weaponTitle = API.cs().getWeaponTitle(item);
 			String orgWeaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
 			if(!WEAPON_NAME.equals(orgWeaponTitle)) {
 				continue;
 			}
 			Elemental elem = Grimoire.getElemental(player);
 			int startTime = getConfig(elem, KEY_MANA_REFILL_START_TIME);
-			int interval = API.getCSDirector().getInt(WEAPON_NAME + "_" + elem.getKey() + ".Reload.Reload_Duration");
+			int interval = API.getCrackShot().data.getInt(WEAPON_NAME + "_" + elem.getKey() + ".Reload.Reload_Duration");
 			int amount = getConfig(elem, KEY_MANA_REFILL_AMOUNT);
-			int maxMana = API.getCSDirector().getInt(WEAPON_NAME + "_" + elem.getKey() + ".Reload.Reload_Amount");
+			int maxMana = API.getCrackShot().data.getInt(WEAPON_NAME + "_" + elem.getKey() + ".Reload.Reload_Amount");
 			int currentTick = Bukkit.getCurrentTick();
 			int lastAction = lastActionTime.getOrDefault(player, 0);
 
@@ -122,13 +124,13 @@ public class Sorcerers_Rod implements Listener {
 
 				// 即時回復
 				if(interval == 0) {
-					API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(maxMana), WEAPON_NAME + "_" + elem.getKey());
+					API.getCrackShot().csminion.replaceBrackets(item, String.valueOf(maxMana), WEAPON_NAME + "_" + elem.getKey());
 					continue;
 				}
 
 				// 自動回復
 				if((currentTick - healStart) % interval == 0) {
-					int ammo = API.getCSDirector().getAmmoBetweenBrackets(player, WEAPON_NAME + "_" + elem.getKey(), item);
+					int ammo = API.getCrackShot().getAmmoBetweenBrackets(player, WEAPON_NAME + "_" + elem.getKey(), item);
 					if(ammo == maxMana) {
 						continue;
 					}
@@ -137,7 +139,7 @@ public class Sorcerers_Rod implements Listener {
 						ammo = maxMana;
 						healStartTime.remove(player);
 					}
-					API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(ammo), WEAPON_NAME + "_" + elem.getKey());
+					API.getCrackShot().csminion.replaceBrackets(item, String.valueOf(ammo), WEAPON_NAME + "_" + elem.getKey());
 				}
 				player.getInventory().setItemInMainHand(item);
 			}
@@ -201,7 +203,7 @@ public class Sorcerers_Rod implements Listener {
 		int slot = event.getNewSlot();
 		ItemStack item = player.getInventory().getItem(slot);
 		if(item == null) return;
-		String weaponTitle = API.getCSUtility().getWeaponTitle(item);
+		String weaponTitle = API.cs().getWeaponTitle(item);
 		String orgWeaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
 		if(!WEAPON_NAME.equals(orgWeaponTitle)) {
 			return;
@@ -209,8 +211,8 @@ public class Sorcerers_Rod implements Listener {
 
 		Elemental elem = Grimoire.getElemental(player);
 		if(!lastElemental.containsKey(player) || lastElemental.get(player) != elem) {
-			API.getCSDirector().csminion.resetItemName(item, weaponTitle + "_" + elem.getKey());
-			API.getCSDirector().csminion.replaceBrackets(item, "0", WEAPON_NAME + "_" + elem.getKey());
+			API.getCrackShot().csminion.resetItemName(item, weaponTitle + "_" + elem.getKey());
+			API.getCrackShot().csminion.replaceBrackets(item, "0", WEAPON_NAME + "_" + elem.getKey());
 		}
 		lastElemental.put(player, elem);
 
@@ -218,14 +220,14 @@ public class Sorcerers_Rod implements Listener {
 		ItemMeta meta = item.getItemMeta();
 		double speed = getConfig(elem, KEY_MOVEMENT_SPEED_MODIFIER);
 		if(meta.getAttributeModifiers() != null) {
-			for(AttributeModifier modifier : meta.getAttributeModifiers().get(Attribute.GENERIC_MOVEMENT_SPEED)) {
-				if(modifier.getUniqueId().equals(SPEED_MODIFIER_UUID)) {
-					meta.removeAttributeModifier(Attribute.GENERIC_MOVEMENT_SPEED, modifier);
+			for(AttributeModifier modifier : meta.getAttributeModifiers().get(Attribute.MOVEMENT_SPEED)) {
+				if(modifier.getKey().equals(SPEED_MODIFIER_KEY)) {
+					meta.removeAttributeModifier(Attribute.MOVEMENT_SPEED, modifier);
 				}
 			}
 		}
-		AttributeModifier modifier = new AttributeModifier(SPEED_MODIFIER_UUID, "generic.movement_speed", speed, AttributeModifier.Operation.ADD_NUMBER, EquipmentSlot.HAND);
-		meta.addAttributeModifier(Attribute.GENERIC_MOVEMENT_SPEED, modifier);
+		AttributeModifier modifier = new AttributeModifier(SPEED_MODIFIER_KEY, speed, AttributeModifier.Operation.ADD_NUMBER, EquipmentSlotGroup.MAINHAND);
+		meta.addAttributeModifier(Attribute.MOVEMENT_SPEED, modifier);
 		item.setItemMeta(meta);
 
 		player.getInventory().setItem(slot, item);
@@ -245,7 +247,7 @@ public class Sorcerers_Rod implements Listener {
 		if(weaponTitle != null && weaponTitle.startsWith(WEAPON_NAME)) {
 			ItemStack item = event.getPlayer().getInventory().getItemInMainHand();
 			Elemental elem = Grimoire.getElemental(event.getPlayer());
-			int ammo = API.getCSDirector().getAmmoBetweenBrackets(event.getPlayer(), WEAPON_NAME + "_" + elem.getKey(), item);
+			int ammo = API.getCrackShot().getAmmoBetweenBrackets(event.getPlayer(), WEAPON_NAME + "_" + elem.getKey(), item);
 			beforeReloadAmmo.put(event.getPlayer(), ammo);
 		}
 	}
@@ -257,7 +259,7 @@ public class Sorcerers_Rod implements Listener {
 			if(weaponTitle != null && weaponTitle.startsWith(WEAPON_NAME)) {
 				ItemStack item = event.getPlayer().getInventory().getItemInMainHand();
 				Elemental elem = Grimoire.getElemental(event.getPlayer());
-				API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(beforeReloadAmmo.get(event.getPlayer())), WEAPON_NAME + "_" + elem.getKey());
+				API.getCrackShot().csminion.replaceBrackets(item, String.valueOf(beforeReloadAmmo.get(event.getPlayer())), WEAPON_NAME + "_" + elem.getKey());
 				beforeReloadAmmo.remove(event.getPlayer());
 			}
 		}

@@ -3,9 +3,9 @@ package com.github.aburaagetarou.agetarouuniqueguns.weapons;
 import com.github.aburaagetarou.agetarouuniqueguns.AgetarouUniqueGuns;
 import com.github.aburaagetarou.agetarouuniqueguns.WeaponConfig;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
-import com.shampaggon.crackshot.events.WeaponDamageEntityEvent;
-import com.shampaggon.crackshot.events.WeaponShootEvent;
-import me.DeeCaaD.CrackShotPlus.API;
+import net.azisaba.crackshot.events.WeaponDamageEntityEvent;
+import net.azisaba.crackshot.events.WeaponShootEvent;
+import net.azisaba.crackshotplus.API;
 import net.azisaba.lgw.core.LeonGunWar;
 import net.azisaba.lgw.core.util.BattleTeam;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
@@ -226,12 +226,12 @@ public class EPT_Jager implements Listener {
      * @param player プレイヤー
      */
     public static void apply(Player player) {
-        String weaponTitle = API.getCSUtility().getWeaponTitle(player.getInventory().getItemInMainHand());
+        String weaponTitle = API.cs().getWeaponTitle(player.getInventory().getItemInMainHand());
         if(weaponTitle == null) return;
         String orgWeaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
         if(!WEAPON_NAME.equals(orgWeaponTitle)) return;
 
-        String weaponName = API.getCSDirector().getString(weaponTitle + ".Item_Information.Item_Name");
+        String weaponName = API.getCrackShot().data.getString(weaponTitle + ".Item_Information.Item_Name");
         if (weaponName == null) weaponName = WEAPON_NAME;
 
         final String finalWeaponName = weaponName;
@@ -249,13 +249,13 @@ public class EPT_Jager implements Listener {
      * メッセージ付きでダメージを与える
      */
     public static void applyDamage(Player player, LivingEntity entity, ItemStack weapon) {
-        String weaponTitle = API.getCSUtility().getWeaponTitle(player.getInventory().getItemInMainHand());
+        String weaponTitle = API.cs().getWeaponTitle(player.getInventory().getItemInMainHand());
         if(weaponTitle == null) weaponTitle = "";
-        String weaponName = API.getCSDirector().getString(weaponTitle + ".Item_Information.Item_Name");
+        String weaponName = API.getCrackShot().data.getString(weaponTitle + ".Item_Information.Item_Name");
         if(weaponName == null) weaponName = "";
         String orgWeaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
         if(orgWeaponTitle != null && !orgWeaponTitle.equals(weaponTitle)) {
-            String orgWeaponName = API.getCSDirector().getString(orgWeaponTitle + ".Item_Information.Item_Name");
+            String orgWeaponName = API.getCrackShot().data.getString(orgWeaponTitle + ".Item_Information.Item_Name");
             weaponName += orgWeaponName != null ? " (" + orgWeaponName + ")" : "";
         }
 

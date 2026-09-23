@@ -3,7 +3,7 @@ package com.github.aburaagetarou.agetarouuniqueguns.weapons;
 import com.github.aburaagetarou.agetarouuniqueguns.WeaponConfig;
 import com.github.aburaagetarou.agetarouuniqueguns.listeners.CSListeners;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
-import me.DeeCaaD.CrackShotPlus.API;
+import net.azisaba.crackshotplus.API;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -63,16 +63,16 @@ public class Mosin_triumphant_song implements Listener {
 
         // 所持していない場合は処理しない
         ItemStack weapon = killer.getInventory().getItemInMainHand();
-        if(!WEAPON_NAME.equals(CSUtilities.getOriginalWeaponName(API.getCSUtility().getWeaponTitle(weapon)))) return;
-        String weaponTitle = API.getCSUtility().getWeaponTitle(weapon);
+        if(!WEAPON_NAME.equals(CSUtilities.getOriginalWeaponName(API.cs().getWeaponTitle(weapon)))) return;
+        String weaponTitle = API.cs().getWeaponTitle(weapon);
 
         // 指定確率で残弾数回復
         double chance = getConfig(KEY_SUPPLEMENT_CHANCE);
         if(Double.compare(Math.random(), chance) > 0) return;
 
         // 残弾数回復
-        int ammo = API.getCSDirector().getAmmoBetweenBrackets(killer, weaponTitle, weapon);
-        API.getCSDirector().csminion.replaceBrackets(weapon, String.valueOf(ammo + 1), weaponTitle);
+        int ammo = API.getCrackShot().getAmmoBetweenBrackets(killer, weaponTitle, weapon);
+        API.getCrackShot().csminion.replaceBrackets(weapon, String.valueOf(ammo + 1), weaponTitle);
     }
 
 }

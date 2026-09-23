@@ -1,12 +1,12 @@
 package com.github.aburaagetarou.agetarouuniqueguns.weapons;
 
 import com.github.aburaagetarou.agetarouuniqueguns.WeaponConfig;
-import com.shampaggon.crackshot.CSUtility;
-import com.shampaggon.crackshot.events.WeaponDamageEntityEvent;
-import com.shampaggon.crackshot.events.WeaponHitBlockEvent;
-import com.shampaggon.crackshot.events.WeaponReloadEvent;
-import com.shampaggon.crackshot.events.WeaponShootEvent;
-import me.DeeCaaD.CrackShotPlus.API;
+import net.azisaba.crackshot.CSUtility;
+import net.azisaba.crackshot.events.WeaponDamageEntityEvent;
+import net.azisaba.crackshot.events.WeaponHitBlockEvent;
+import net.azisaba.crackshot.events.WeaponReloadEvent;
+import net.azisaba.crackshot.events.WeaponShootEvent;
+import net.azisaba.crackshotplus.API;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.ChatColor;
@@ -28,8 +28,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
-import com.shampaggon.crackshot.events.WeaponPreShootEvent;
-import me.DeeCaaD.CrackShotPlus.Events.WeaponHeldEvent;
+import net.azisaba.crackshot.events.WeaponPreShootEvent;
+import net.azisaba.crackshotplus.events.WeaponHeldEvent;
 import org.bukkit.event.player.PlayerItemHeldEvent;
 
 import java.util.HashMap;
@@ -44,6 +44,7 @@ public class UniversalWeaponSystem implements Listener {
     private static boolean isExplosionLock = false;
     private final Map<String, Long> cooldownMap = new HashMap<>();
     private final Map<UUID, Long> switchLockMap = new HashMap<>();
+    private final Map<UUID, Long> reloadActionBarUntilMap = new HashMap<>();
     // ★ 不足していた変数：元のモデルデータを一時保存するマップ
     private final Map<UUID, Integer> originalModelMap = new HashMap<>();
 
@@ -71,7 +72,7 @@ public class UniversalWeaponSystem implements Listener {
         if (cooldownMap.getOrDefault(cdKey, 0L) <= System.currentTimeMillis()) {
 
             int magSize = root.getInt("Shoot.Capacity", 0);
-            int currentAmmo = API.getCSDirector().getAmmoBetweenBrackets(p, title, item);
+            int currentAmmo = API.getCrackShot().getAmmoBetweenBrackets(p, title, item);
             if (magSize > 0 && currentAmmo >= magSize) {
                 return;
             }
@@ -82,7 +83,7 @@ public class UniversalWeaponSystem implements Listener {
                 nextAmmo = magSize;
             }
 
-            API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(nextAmmo), title);
+            API.getCrackShot().csminion.replaceBrackets(item, String.valueOf(nextAmmo), title);
 
             handleFeedback(p, sec);
 
@@ -121,6 +122,15 @@ public class UniversalWeaponSystem implements Listener {
                 }
             }
         }.runTaskLater(plugin, 1L);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onReloadActionBarPriority(WeaponReloadEvent event) {
+        int reloadTicks = Math.max(1, event.getReloadDuration()) + 2;
+        reloadActionBarUntilMap.put(
+                event.getPlayer().getUniqueId(),
+                System.currentTimeMillis() + (reloadTicks * 50L)
+        );
     }
 
     // --- 2. 爆発制御 (二重防止 & CS設定の完全適用) ---
@@ -178,7 +188,7 @@ public class UniversalWeaponSystem implements Listener {
     private void executeExplosion(Player attacker, Location loc, String title) {
         isExplosionLock = true;
         try {
-            API.getCSUtility().generateExplosion(attacker, loc, title);
+            API.cs().generateExplosion(attacker, loc, title);
         } finally {
             isExplosionLock = false;
         }
@@ -260,6 +270,7 @@ public class UniversalWeaponSystem implements Listener {
     public void onQuit(PlayerQuitEvent event) {
         originalModelMap.remove(event.getPlayer().getUniqueId());
         switchLockMap.remove(event.getPlayer().getUniqueId());
+        reloadActionBarUntilMap.remove(event.getPlayer().getUniqueId());
     }
 
     // --- 6. 持っている間だけモデル変更の内部処理 ---
@@ -349,7 +360,7 @@ public class UniversalWeaponSystem implements Listener {
                 ConfigurationSection root = WeaponConfig.getWeaponConfig(title);
                 if (root != null) {
                     String shootBlockMsg = root.getString("Switch_Lock.Shoot_Block_Message");
-                    if (shootBlockMsg != null && !shootBlockMsg.isEmpty()) {
+                    if (shootBlockMsg != null && !shootBlockMsg.isEmpty() && !isReloadActionBarActive(p)) {
                         p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(shootBlockMsg)));
                     }
                 }
@@ -371,10 +382,10 @@ public class UniversalWeaponSystem implements Listener {
 
             int cost = sec.getInt("Extra_Ammo_Cost", 1);
             ItemStack item = p.getInventory().getItemInMainHand();
-            int currentAmmo = API.getCSDirector().getAmmoBetweenBrackets(p, title, item);
+            int currentAmmo = API.getCrackShot().getAmmoBetweenBrackets(p, title, item);
 
             if (currentAmmo >= cost) {
-                API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(currentAmmo - cost), title);
+                API.getCrackShot().csminion.replaceBrackets(item, String.valueOf(currentAmmo - cost), title);
                 event.getProjectile().setMetadata("CustomExplosive", new FixedMetadataValue(plugin, true));
                 return true;
             }
@@ -518,7 +529,7 @@ public class UniversalWeaponSystem implements Listener {
                 if (!p.isOnline()) { this.cancel(); return; }
                 if (i >= ticks) {
                     String endMsg = sec.getString("End_Action_Bar");
-                    if (endMsg != null && !endMsg.isEmpty()) {
+                    if (endMsg != null && !endMsg.isEmpty() && !isReloadActionBarActive(p)) {
                         p.spigot().sendMessage(
                                 ChatMessageType.ACTION_BAR,
                                 new TextComponent(translate(endMsg.replace("{time}", "0.0")))
@@ -533,7 +544,7 @@ public class UniversalWeaponSystem implements Listener {
                 }
                 ItemStack currentItem = p.getInventory().getItemInMainHand();
                 String currentTitle = cs.getWeaponTitle(currentItem);
-                if (currentTitle != null && currentTitle.equals(weaponTitle)) {
+                if (currentTitle != null && currentTitle.equals(weaponTitle) && !isReloadActionBarActive(p)) {
                     String actionStr = sec.getString("Action_Bar");
                     if (actionStr != null) {
                         String bar = buildBar((double) i / ticks, sec);
@@ -565,25 +576,34 @@ public class UniversalWeaponSystem implements Listener {
     private void modifyAmmo(Player p, String t, int a) {
         ItemStack i = p.getInventory().getItemInMainHand();
         if (t.equals(cs.getWeaponTitle(i))) {
-            int c = API.getCSDirector().getAmmoBetweenBrackets(p, t, i);
-            API.getCSDirector().csminion.replaceBrackets(i, String.valueOf(c + a), t);
+            int c = API.getCrackShot().getAmmoBetweenBrackets(p, t, i);
+            API.getCrackShot().csminion.replaceBrackets(i, String.valueOf(c + a), t);
         }
     }
 
     private void fillAmmo(Player p, String title, int amount) {
         ItemStack item = p.getInventory().getItemInMainHand();
         if (title.equals(cs.getWeaponTitle(item))) {
-            API.getCSDirector().csminion.replaceBrackets(item, String.valueOf(amount), title);
+            API.getCrackShot().csminion.replaceBrackets(item, String.valueOf(amount), title);
         }
     }
 
     private void handleFeedback(Player p, ConfigurationSection s) {
         String msg = s.getString("Message");
-        if (msg != null && !msg.isEmpty()) {
+        if (msg != null && !msg.isEmpty() && !isReloadActionBarActive(p)) {
             p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(translate(msg)));
         }
         String rawSounds = s.getString("Sounds", s.getString("Sound"));
         if (rawSounds != null) handleFeedbackSound(p, rawSounds);
+    }
+
+    private boolean isReloadActionBarActive(Player p) {
+        UUID uuid = p.getUniqueId();
+        long until = reloadActionBarUntilMap.getOrDefault(uuid, 0L);
+        if (until > System.currentTimeMillis()) return true;
+
+        reloadActionBarUntilMap.remove(uuid);
+        return false;
     }
 
     private void handleFeedbackSound(Player p, String rawSounds) {

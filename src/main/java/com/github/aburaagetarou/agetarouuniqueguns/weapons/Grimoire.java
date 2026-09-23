@@ -2,7 +2,7 @@ package com.github.aburaagetarou.agetarouuniqueguns.weapons;
 
 import com.github.aburaagetarou.agetarouuniqueguns.AgetarouUniqueGuns;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
-import com.shampaggon.crackshot.events.WeaponPreShootEvent;
+import net.azisaba.crackshot.events.WeaponPreShootEvent;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Entity;
 import org.bukkit.event.EventHandler;

@@ -6,7 +6,7 @@ import co.aikar.commands.annotation.*;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
 import com.github.aburaagetarou.agetarouuniqueguns.weapons.HurtfulSpine;
 import com.github.aburaagetarou.agetarouuniqueguns.weapons.HurtlessSpine;
-import me.DeeCaaD.CrackShotPlus.API;
+import net.azisaba.crackshotplus.API;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -121,7 +121,7 @@ public class AUGCommand extends BaseCommand {
 	@Description("所持中の武器の固有変数の値を変更します。")
 	public void onSetVariable(Player player, String key, String value) {
 		ItemStack held = player.getInventory().getItemInMainHand();
-		String weaponTitle = API.getCSUtility().getWeaponTitle(held);
+		String weaponTitle = API.cs().getWeaponTitle(held);
 		weaponTitle = weaponTitle != null ? weaponTitle : "";
 		weaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
 

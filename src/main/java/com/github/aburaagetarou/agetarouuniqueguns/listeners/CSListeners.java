@@ -2,8 +2,8 @@ package com.github.aburaagetarou.agetarouuniqueguns.listeners;
 
 import com.github.aburaagetarou.agetarouuniqueguns.AgetarouUniqueGuns;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
-import com.shampaggon.crackshot.events.*;
-import me.DeeCaaD.CrackShotPlus.API;
+import net.azisaba.crackshot.events.*;
+import net.azisaba.crackshotplus.API;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
@@ -106,9 +106,9 @@ public class CSListeners implements Listener {
 
 		// ホットバーから武器を取得
 		for(int i = 0; i < 9; i++) {
-			String title = API.getCSUtility().getWeaponTitle(attacker.getInventory().getItem(i));
+			String title = API.cs().getWeaponTitle(attacker.getInventory().getItem(i));
 			if(title == null) continue;
-			String meleeTitle = API.getCSDirector().getString(title + ".Item_Information.Melee_Attachment");
+			String meleeTitle = API.getCrackShot().data.getString(title + ".Item_Information.Melee_Attachment");
 			if(weaponTitle.equals(title) || weaponTitle.equals(meleeTitle)) {
 
 				// 武器名を保存

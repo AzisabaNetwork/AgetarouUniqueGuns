@@ -3,8 +3,8 @@ package com.github.aburaagetarou.agetarouuniqueguns.weapons;
 import com.github.aburaagetarou.agetarouuniqueguns.listeners.CSListeners;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.Utilities;
-import com.shampaggon.crackshot.events.WeaponPreShootEvent;
-import me.DeeCaaD.CrackShotPlus.API;
+import net.azisaba.crackshot.events.WeaponPreShootEvent;
+import net.azisaba.crackshotplus.API;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 
@@ -24,7 +24,7 @@ public class CarolOfTheOldOnes implements Listener {
 	@EventHandler
 	public void onWeaponPreShoot(WeaponPreShootEvent event) {
 		if (WEAPON_NAME.equals(CSUtilities.getOriginalWeaponName(event.getWeaponTitle()))) {
-			if(API.getCSDirector().getAmmoBetweenBrackets(event.getPlayer(), WEAPON_NAME, event.getPlayer().getInventory().getItemInMainHand()) < 1) {
+			if(API.getCrackShot().getAmmoBetweenBrackets(event.getPlayer(), WEAPON_NAME, event.getPlayer().getInventory().getItemInMainHand()) < 1) {
 				Utilities.sendColoredMessage(event.getPlayer(), "&cあなたは忠告を守れなかった。");
 				event.getPlayer().setHealth(0.0d);
 			}

@@ -14,7 +14,7 @@
     <name>AgetarouUniqueGuns</name>
 
     <properties>
-        <java.version>1.8</java.version>
+        <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -24,16 +24,15 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.8.1</version>
+                <version>3.13.0</version>
                 <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
+                    <release>${java.version}</release>
                 </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
-                <version>3.2.4</version>
+                <version>3.6.2</version>
                 <executions>
                     <execution>
                         <phase>package</phase>
@@ -109,30 +108,23 @@
 
     <dependencies>
         <dependency>
-            <groupId>com.destroystokyo.paper</groupId>
+            <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
-            <version>1.16.5-R0.1-SNAPSHOT</version>
+            <version>1.21.11-R0.1-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
 
         <dependency>
-            <groupId>com.shampaggon</groupId>
+            <groupId>net.azisaba</groupId>
             <artifactId>CrackShot</artifactId>
-            <version>0.98.11</version>
+            <version>1.0.1</version>
             <scope>provided</scope>
         </dependency>
 
         <dependency>
-            <groupId>me.deecaad</groupId>
+            <groupId>net.azisaba</groupId>
             <artifactId>CrackShotPlus</artifactId>
-            <version>1.108</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>net.azisaba.leoncsaddon</groupId>
-            <artifactId>LeonCSAddon</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.2.2</version>
             <scope>provided</scope>
         </dependency>
 
@@ -150,16 +142,16 @@
         </dependency>
 
         <dependency>
-            <groupId>com.comphenix.protocol</groupId>
+            <groupId>net.dmulloy2</groupId>
             <artifactId>ProtocolLib</artifactId>
-            <version>4.7.0</version>
+            <version>5.4.0</version>
             <scope>provided</scope>
         </dependency>
 
         <dependency>
             <groupId>net.md-5</groupId>
             <artifactId>bungeecord-chat</artifactId>
-            <version>1.16-R0.4</version>
+            <version>1.21-R0.4</version>
             <scope>provided</scope>
         </dependency>
 

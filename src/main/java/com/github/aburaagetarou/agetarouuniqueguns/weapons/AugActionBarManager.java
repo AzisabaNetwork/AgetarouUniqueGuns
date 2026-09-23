@@ -6,7 +6,6 @@ import com.comphenix.protocol.ProtocolManager;
 import com.comphenix.protocol.events.ListenerPriority;
 import com.comphenix.protocol.events.PacketAdapter;
 import com.comphenix.protocol.events.PacketEvent;
-import com.comphenix.protocol.wrappers.EnumWrappers;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.entity.Player;
@@ -32,6 +31,7 @@ public class AugActionBarManager {
     private final Map<UUID, Integer> priorityMap = new ConcurrentHashMap<>();
     private final Map<UUID, BukkitRunnable> taskMap = new ConcurrentHashMap<>();
     private final Map<UUID, Integer> bypassMap = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> suppressedUntilMap = new ConcurrentHashMap<>();
 
     public AugActionBarManager(JavaPlugin plugin, Function<String, String> colorizer) {
         this.plugin = plugin;
@@ -43,6 +43,8 @@ public class AugActionBarManager {
         if (player == null || message == null || message.isEmpty() || ticks <= 0) return;
 
         UUID uuid = player.getUniqueId();
+        if (isSuppressed(uuid)) return;
+
         long now = System.currentTimeMillis();
         long currentUntil = untilMap.getOrDefault(uuid, 0L);
         int currentPriority = priorityMap.getOrDefault(uuid, 0);
@@ -62,6 +64,10 @@ public class AugActionBarManager {
             public void run() {
                 if (!player.isOnline()) {
                     stop(uuid);
+                    return;
+                }
+
+                if (isSuppressed(uuid)) {
                     return;
                 }
 
@@ -94,6 +100,7 @@ public class AugActionBarManager {
         untilMap.remove(uuid);
         priorityMap.remove(uuid);
         bypassMap.remove(uuid);
+        suppressedUntilMap.remove(uuid);
 
         BukkitRunnable task = taskMap.remove(uuid);
         if (task != null) task.cancel();
@@ -110,14 +117,38 @@ public class AugActionBarManager {
         return untilMap.getOrDefault(player.getUniqueId(), 0L) > System.currentTimeMillis();
     }
 
+    public void suppress(Player player, int ticks) {
+        if (player == null || ticks <= 0) return;
+
+        UUID uuid = player.getUniqueId();
+        long until = System.currentTimeMillis() + (ticks * 50L);
+        suppressedUntilMap.merge(uuid, until, Math::max);
+
+        textMap.remove(uuid);
+        untilMap.remove(uuid);
+        priorityMap.remove(uuid);
+        bypassMap.remove(uuid);
+
+        BukkitRunnable task = taskMap.remove(uuid);
+        if (task != null) task.cancel();
+    }
+
+    private boolean isSuppressed(UUID uuid) {
+        long until = suppressedUntilMap.getOrDefault(uuid, 0L);
+        if (until > System.currentTimeMillis()) return true;
+
+        suppressedUntilMap.remove(uuid);
+        return false;
+    }
+
     private void setupProtocolLibGuard() {
         ProtocolManager manager = ProtocolLibrary.getProtocolManager();
 
         manager.addPacketListener(new PacketAdapter(
                 plugin,
                 ListenerPriority.HIGHEST,
-                PacketType.Play.Server.CHAT,
-                PacketType.Play.Server.TITLE
+                PacketType.Play.Server.SYSTEM_CHAT,
+                PacketType.Play.Server.SET_ACTION_BAR_TEXT
         ) {
             @Override
             public void onPacketSending(PacketEvent event) {
@@ -141,31 +172,16 @@ public class AugActionBarManager {
     }
 
     private boolean isActionBarPacket(PacketEvent event) {
-        if (event.getPacketType() == PacketType.Play.Server.TITLE) {
-            try {
-                EnumWrappers.TitleAction action =
-                        event.getPacket().getTitleActions().readSafely(0);
+        if (event.getPacketType() == PacketType.Play.Server.SET_ACTION_BAR_TEXT) {
+            return true;
+        }
 
-                return action == EnumWrappers.TitleAction.ACTIONBAR;
+        if (event.getPacketType() == PacketType.Play.Server.SYSTEM_CHAT) {
+            try {
+                return Boolean.TRUE.equals(event.getPacket().getBooleans().readSafely(0));
             } catch (Exception ignored) {
                 return false;
             }
-        }
-
-        if (event.getPacketType() == PacketType.Play.Server.CHAT) {
-            try {
-                EnumWrappers.ChatType type =
-                        event.getPacket().getChatTypes().readSafely(0);
-
-                if (type != null) {
-                    return type == EnumWrappers.ChatType.GAME_INFO;
-                }
-            } catch (Exception ignored) {}
-
-            try {
-                Byte position = event.getPacket().getBytes().readSafely(0);
-                return position != null && position == 2;
-            } catch (Exception ignored) {}
         }
 
         return false;

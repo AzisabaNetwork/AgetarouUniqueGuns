@@ -1,9 +1,9 @@
 package com.github.aburaagetarou.agetarouuniqueguns.weapons;
 
 import com.github.aburaagetarou.agetarouuniqueguns.WeaponConfig;
-import com.shampaggon.crackshot.CSUtility;
-import com.shampaggon.crackshot.events.WeaponHitBlockEvent;
-import me.DeeCaaD.CrackShotPlus.API;
+import net.azisaba.crackshot.CSUtility;
+import net.azisaba.crackshot.events.WeaponHitBlockEvent;
+import net.azisaba.crackshotplus.API;
 import org.bukkit.Location;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -79,7 +79,7 @@ public class testweapon_block_explode implements Listener {
     private void executeExplosion(Player attacker, Location loc) {
         isLock = true;
         try {
-            API.getCSUtility().generateExplosion(attacker, loc, WEAPON_NAME);
+            API.cs().generateExplosion(attacker, loc, WEAPON_NAME);
         } finally {
             isLock = false;
         }
