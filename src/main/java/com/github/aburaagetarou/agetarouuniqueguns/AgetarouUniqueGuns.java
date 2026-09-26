@@ -73,6 +73,7 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 		Bukkit.getPluginManager().registerEvents(new testweapon_damage_to_ammo(), this);
 		Bukkit.getPluginManager().registerEvents(new testweapon_instant_reload(), this);
 		Bukkit.getPluginManager().registerEvents(new testweapon_block_explode(), this);
+		Bukkit.getPluginManager().registerEvents(new TimeCompressor(), this);
 
 
 		getServer().getPluginManager().registerEvents(new UniversalWeaponSystem(this), this);
@@ -121,6 +122,7 @@ public final class AgetarouUniqueGuns extends JavaPlugin {
 	public void loadDefaultWeaponConfig() {
 		File weaponsDir = new File(getDataFolder(), "weapons");
 		if(!weaponsDir.exists()) weaponsDir.mkdirs();
+		WeaponConfig.clearWeaponConfig();
 		WeaponConfig.loadWeaponConfig(weaponsDir);
 	}
 
