@@ -150,8 +150,8 @@
         </dependency>
 
         <dependency>
-            <groupId>com.comphenix.protocol</groupId>
-            <artifactId>ProtocolLib</artifactId>
+            <groupId>com.github.dmulloy2</groupId>
+            <artifactId>protocollib</artifactId>
             <version>4.7.0</version>
             <scope>provided</scope>
         </dependency>

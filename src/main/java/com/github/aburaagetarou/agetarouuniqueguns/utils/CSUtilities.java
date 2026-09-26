@@ -33,6 +33,17 @@ public class CSUtilities {
 	}
 
 	/**
+	 * 武器を取得
+	 * @param weaponName 武器名
+	 * @return ItemStack 武器アイテム
+	 */
+	public static ItemStack getWeapon(String weaponName) {
+		ItemStack weapon = API.getCSDirector().csminion.vendingMachine(weaponName);
+		weapon = API.getNMS().setNBT(weapon, "wn", weaponName);
+		return weapon;
+	}
+
+	/**
 	 * 指定したスキン名を適用する
 	 * @param player プレイヤー
 	 * @param item 武器アイテム
