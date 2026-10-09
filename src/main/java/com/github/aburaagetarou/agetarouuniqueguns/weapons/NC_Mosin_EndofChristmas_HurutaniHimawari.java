@@ -64,7 +64,7 @@ public class NC_Mosin_EndofChristmas_HurutaniHimawari implements Listener {
 
         // 所持していない場合は処理しない
         ItemStack weapon = killer.getInventory().getItemInMainHand();
-        if(!WEAPON_NAME.equals(CSUtilities.getOriginalWeaponName(API.getCSUtility().getWeaponTitle(weapon)))) return;
+        if(!CSUtilities.checkWeaponOrg(WEAPON_NAME, weapon)) return;
         String weaponTitle = API.getCSUtility().getWeaponTitle(weapon);
 
         // 指定確率で残弾数回復

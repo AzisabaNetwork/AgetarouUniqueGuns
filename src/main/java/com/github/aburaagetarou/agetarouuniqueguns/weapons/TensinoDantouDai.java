@@ -115,10 +115,7 @@ public class TensinoDantouDai extends WeaponBase {
 	 */
 	private static boolean updateWeaponData(ItemStack item, Player player) {
 		if(item == null) return false;
-		String weaponTitle = API.getCSUtility().getWeaponTitle(item);
-		if(weaponTitle == null) return false;
-		String orgWeaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
-		if(!WEAPON_NAME.equals(orgWeaponTitle)) return false;
+		if(!CSUtilities.checkWeaponOrg(WEAPON_NAME, item)) return false;
 
 		// アイテムの移動速度を設定
 		ItemMeta meta = item.getItemMeta();
@@ -312,7 +309,7 @@ public class TensinoDantouDai extends WeaponBase {
 	 */
 	@EventHandler(priority = EventPriority.HIGH)
 	public void onWeaponShootEvent(WeaponPreShootEvent event) {
-		if(!WEAPON_NAME.equals(CSUtilities.getOriginalWeaponName(event.getWeaponTitle()))) return;
+		if(!CSUtilities.checkWeaponOrg(WEAPON_NAME, event.getWeaponTitle())) return;
 
 		Player player = event.getPlayer();
 

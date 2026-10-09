@@ -63,6 +63,7 @@ public class EPT_Jager implements Listener {
 
     // 効果発動中のプレイヤー（値は効果が終了するサーバーTick）
     private static final Map<Entity, Integer> effectPlayers = new HashMap<>();
+    private static final Map<Entity, String> effectWeaponTitle = new HashMap<>();
 
     // 被ダメージ数カウント
     private static final Map<Entity, Integer> damagedCount = new HashMap<>();
@@ -127,8 +128,8 @@ public class EPT_Jager implements Listener {
      * @param key キー
      * @return Object 設定情報、存在しない場合はデフォルト設定
      */
-    public static Object getConfig(String key) {
-        ConfigurationSection config = WeaponConfig.getWeaponConfig(WEAPON_NAME);
+    public static Object getConfig(String weaponTitle, String key) {
+        ConfigurationSection config = WeaponConfig.getWeaponConfig(weaponTitle);
         if(config == null) {
             config = defaultConfig;
         }
@@ -142,9 +143,9 @@ public class EPT_Jager implements Listener {
      * 設定から被ダメージ数を取得
      * @return int 被ダメージ数
      */
-    public static int getDamageLimitPerTick() {
+    public static int getDamageLimitPerTick(String weaponTitle) {
         try {
-            return Integer.parseInt(getConfig(KEY_DAMAGE_LIMIT_PER_TICK).toString());
+            return Integer.parseInt(getConfig(weaponTitle, KEY_DAMAGE_LIMIT_PER_TICK).toString());
         } catch (ClassCastException e) {
             AgetarouUniqueGuns.getInstance().getLogger().warning("Invalid configuration value: " + WEAPON_NAME + "." + KEY_DAMAGE_LIMIT_PER_TICK);
             return defaultConfig.getInt(KEY_DAMAGE_LIMIT_PER_TICK);
@@ -155,27 +156,27 @@ public class EPT_Jager implements Listener {
      * 設定から効果時間を取得
      * @return int 効果時間(Tick)
      */
-    public static int getEffectDuration() {
+    public static int getEffectDuration(String weaponTitle) {
         try {
-            return Integer.parseInt(getConfig(KEY_EFFECT_DURATION).toString());
+            return Integer.parseInt(getConfig(weaponTitle, KEY_EFFECT_DURATION).toString());
         } catch (ClassCastException e) {
             AgetarouUniqueGuns.getInstance().getLogger().warning("Invalid configuration value: " + WEAPON_NAME + "." + KEY_EFFECT_DURATION);
             return defaultConfig.getInt(KEY_EFFECT_DURATION);
         }
     }
 
-    public static double getKeyDamageAmount() {
+    public static double getKeyDamageAmount(String weaponTitle) {
         try {
-            return Double.parseDouble(getConfig(KEY_DAMAGE_AMOUNT).toString());
+            return Double.parseDouble(getConfig(weaponTitle, KEY_DAMAGE_AMOUNT).toString());
         } catch (ClassCastException e) {
             AgetarouUniqueGuns.getInstance().getLogger().warning("Invalid configuration value: " + WEAPON_NAME + "." + KEY_DAMAGE_AMOUNT);
             return defaultConfig.getDouble(KEY_DAMAGE_AMOUNT);
         }
     }
 
-    public static double getDamageRange() {
+    public static double getDamageRange(String weaponTitle) {
         try {
-            return Double.parseDouble(getConfig(KEY_DAMAGE_RANGE).toString());
+            return Double.parseDouble(getConfig(weaponTitle, KEY_DAMAGE_RANGE).toString());
         } catch (ClassCastException e) {
             AgetarouUniqueGuns.getInstance().getLogger().warning("Invalid configuration value: " + WEAPON_NAME + "." + KEY_DAMAGE_RANGE);
             return defaultConfig.getDouble(KEY_DAMAGE_RANGE);
@@ -186,9 +187,9 @@ public class EPT_Jager implements Listener {
      * 設定から与ダメージ時メッセージを取得
      * @return String メッセージ(%range%: 範囲, %player%: プレイヤー名)
      */
-    public static String getDamageMessage() {
+    public static String getDamageMessage(String weaponTitle) {
         try {
-            return getConfig(KEY_DAMAGE_MESSAGE).toString();
+            return getConfig(weaponTitle, KEY_DAMAGE_MESSAGE).toString();
         } catch (ClassCastException e) {
             AgetarouUniqueGuns.getInstance().getLogger().warning("Invalid configuration value: " + WEAPON_NAME + "." + KEY_DAMAGE_MESSAGE);
             return defaultConfig.getString(KEY_DAMAGE_MESSAGE);
@@ -199,9 +200,9 @@ public class EPT_Jager implements Listener {
      * 設定から被ダメージ時メッセージを取得
      * @return String メッセージ(%weapon%: 武器名, %player%: プレイヤー名)
      */
-    public static String getVictimMessage() {
+    public static String getVictimMessage(String weaponTitle) {
         try {
-            return getConfig(KEY_VICTIM_MESSAGE).toString();
+            return getConfig(weaponTitle, KEY_VICTIM_MESSAGE).toString();
         } catch (ClassCastException e) {
             AgetarouUniqueGuns.getInstance().getLogger().warning("Invalid configuration value: " + WEAPON_NAME + "." + KEY_VICTIM_MESSAGE);
             return defaultConfig.getString(KEY_VICTIM_MESSAGE);
@@ -212,9 +213,9 @@ public class EPT_Jager implements Listener {
      * 設定から最大対象人数を取得
      * @return int 最大対象人数
      */
-    public static int getVictimLimit() {
+    public static int getVictimLimit(String weaponTitle) {
         try {
-            return Integer.parseInt(getConfig(KEY_VICTIM_LIMIT).toString());
+            return Integer.parseInt(getConfig(weaponTitle, KEY_VICTIM_LIMIT).toString());
         } catch (ClassCastException e) {
             AgetarouUniqueGuns.getInstance().getLogger().warning("Invalid configuration value: " + WEAPON_NAME + "." + KEY_VICTIM_LIMIT);
             return defaultConfig.getInt(KEY_VICTIM_LIMIT);
@@ -228,20 +229,21 @@ public class EPT_Jager implements Listener {
     public static void apply(Player player) {
         String weaponTitle = API.getCSUtility().getWeaponTitle(player.getInventory().getItemInMainHand());
         if(weaponTitle == null) return;
-        String orgWeaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
-        if(!WEAPON_NAME.equals(orgWeaponTitle)) return;
+        if(!CSUtilities.checkWeaponOrg(WEAPON_NAME, weaponTitle)) return;
 
         String weaponName = API.getCSDirector().getString(weaponTitle + ".Item_Information.Item_Name");
         if (weaponName == null) weaponName = WEAPON_NAME;
 
         final String finalWeaponName = weaponName;
 
-        int duration = getEffectDuration();
+        int duration = getEffectDuration(weaponTitle);
         effectPlayers.put(player, Bukkit.getServer().getCurrentTick() + duration);
+        effectWeaponTitle.put(player, weaponTitle);
 
         Bukkit.getScheduler().runTaskLater(AgetarouUniqueGuns.getInstance(), () -> {
             player.sendMessage(LegacyComponentSerializer.legacySection().deserialize(finalWeaponName + " §cの効果が切れました"));
             effectPlayers.remove(player);
+            effectWeaponTitle.remove(player);
         }, duration);
     }
 
@@ -259,15 +261,15 @@ public class EPT_Jager implements Listener {
             weaponName += orgWeaponName != null ? " (" + orgWeaponName + ")" : "";
         }
 
-        String damageMsg = getDamageMessage();
+        String damageMsg = getDamageMessage(weaponTitle);
         BigDecimal distance = BigDecimal.valueOf(player.getLocation().distance(entity.getLocation()));
         distance = distance.setScale(1, RoundingMode.HALF_UP);
         damageMsg = damageMsg.replace("%range%", distance.toPlainString());
         damageMsg = damageMsg.replace("%player%", entity.getName());
         player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(damageMsg));
 
-        double damageAmount = getKeyDamageAmount();
-        String victimMsg = getVictimMessage();
+        double damageAmount = getKeyDamageAmount(weaponTitle);
+        String victimMsg = getVictimMessage(weaponTitle);
         victimMsg = victimMsg.replace("%weapon%", weaponName);
         victimMsg = victimMsg.replace("%player%", player.getName());
         entity.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(victimMsg));
@@ -278,8 +280,9 @@ public class EPT_Jager implements Listener {
      * 範囲ダメージ
      */
     public static void applyDamage(Player player) {
-        double damageRange = getDamageRange();
-        int victimLimit = getVictimLimit();
+        String weaponTitle = API.getCSUtility().getWeaponTitle(player.getInventory().getItemInMainHand());
+        double damageRange = getDamageRange(weaponTitle);
+        int victimLimit = getVictimLimit(weaponTitle);
         BattleTeam team = LeonGunWar.getPlugin().getManager().getBattleTeam(player);
 
         player.getLocation().getNearbyLivingEntities(damageRange, damageRange, damageRange).stream()
@@ -323,13 +326,14 @@ public class EPT_Jager implements Listener {
 
         if(effectPlayers.getOrDefault(player, 0) > currentTick) {
             int count = EPT_Jager.damagedCount.getOrDefault(player, 0);
-            if(++count > getDamageLimitPerTick()) {
+            if(++count > getDamageLimitPerTick(effectWeaponTitle.getOrDefault(player, ""))) {
                 player.addPotionEffects(getPotionEffects()); // ダメージ軽減発動時のみ付与
                 event.setCancelled(true);
             }
             EPT_Jager.damagedCount.put(player, count);
         } else {
             effectPlayers.remove(player);
+            effectWeaponTitle.remove(player);
         }
     }
 }

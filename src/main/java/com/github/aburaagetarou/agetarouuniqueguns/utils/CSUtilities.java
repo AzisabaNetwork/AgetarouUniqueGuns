@@ -33,6 +33,21 @@ public class CSUtilities {
 	}
 
 	/**
+	 * オリジナルの武器名との比較
+	 * @param orgWeaponName 武器名
+	 * @return String 設定に"Original"が存在する場合はその値、存在しない場合は引数の値
+	 */
+	public static boolean checkWeaponOrg(String orgWeaponName, String weaponName) {
+		if(weaponName == null) return false;
+		String originalWeaponName = getOriginalWeaponName(weaponName);
+		return originalWeaponName.equals(orgWeaponName);
+	}
+	public static boolean checkWeaponOrg(String orgWeaponName, ItemStack item) {
+		String weaponName = API.getCSUtility().getWeaponTitle(item);
+		return checkWeaponOrg(orgWeaponName, weaponName);
+	}
+
+	/**
 	 * 武器を取得
 	 * @param weaponName 武器名
 	 * @return ItemStack 武器アイテム
@@ -40,6 +55,9 @@ public class CSUtilities {
 	public static ItemStack getWeapon(String weaponName) {
 		ItemStack weapon = API.getCSDirector().csminion.vendingMachine(weaponName);
 		weapon = API.getNMS().setNBT(weapon, "wn", weaponName);
+		Skin skin = new Skin(Skin.SkinType.NORMAL, "Default_Skin");
+		skin.setCustomModelData(API.getI(weaponName + ".Held.Custom_Model_Data"));
+		skin.applySkinToItemStack(weapon);
 		return weapon;
 	}
 

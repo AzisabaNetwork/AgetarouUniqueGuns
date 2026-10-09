@@ -58,6 +58,7 @@ public class WeaponConfig {
 		if(files == null) return;
 
 		// 設定ファイルの読み込み
+		List<String> copyTargets = new ArrayList<>();
 		for (File file : files) {
 
 			// ディレクトリの場合は再帰呼び出し
@@ -69,7 +70,42 @@ public class WeaponConfig {
 			// 設定の内容を保存
 			YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
 			for(String key : config.getKeys(false)) {
+				// オリジナル武器の設定が存在する場合
+				if(config.getString(key + ".Original") != null) {
+					copyTargets.add(key);
+				}
 				weaponConfigs.put(key, config.getConfigurationSection(key));
+			}
+		}
+
+		// オリジナル武器から設定のコピー
+		for(String key : copyTargets) {
+			ConfigurationSection copyTarget = weaponConfigs.get(key);
+			if(copyTarget == null) continue;
+			String original = copyTarget.getString("Original");
+			ConfigurationSection originalConfig = weaponConfigs.get(original);
+			if(originalConfig == null) continue;
+			for(String subKey : originalConfig.getKeys(false)) {
+				copyConfig(copyTarget, originalConfig, subKey);
+			}
+			weaponConfigs.put(key, copyTarget);
+		}
+	}
+
+	/**
+	 * 設定のコピー
+	 * @param target 元
+	 * @param source 先
+	 */
+	private static void copyConfig(ConfigurationSection target, ConfigurationSection source, String key) {
+		if(!target.contains(key)) {
+			if(source.isConfigurationSection(key)) {
+				for(String subKey : source.getConfigurationSection(key).getKeys(false)) {
+					copyConfig(target.createSection(key), source.getConfigurationSection(key), subKey);
+				}
+			}
+			else {
+				target.set(key, source.get(key));
 			}
 		}
 	}

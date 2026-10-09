@@ -51,7 +51,7 @@ public class AntiOnePunchMan implements Listener {
     private static final Map<Entity, Integer> effectPlayers = new HashMap<>();
 
     // 右クリックして被弾を待っている「待機状態」のプレイヤー
-    private static final Map<Entity, Boolean> readyPlayers = new HashMap<>();
+    private static final Map<Entity, String> readyPlayers = new HashMap<>();
 
     // 被ダメージカウント
     private static final Map<Entity, Double> damageCount = new HashMap<>();
@@ -177,13 +177,13 @@ public class AntiOnePunchMan implements Listener {
      * @param weaponTitle 武器の識別称号
      */
     public static void apply(Player player, String weaponTitle) {
-        String weaponName = API.getCSDirector().getString(weaponTitle + ".Item_Information.Item_Name");
-        if (weaponName == null) weaponName = WEAPON_NAME;
-        final String finalWeaponName = weaponName;
+        String itemName = API.getCSDirector().getString(weaponTitle + ".Item_Information.Item_Name");
+        if (itemName == null) itemName = WEAPON_NAME;
+        final String finalItemName = itemName;
         int duration = getEffectDuration();
         effectPlayers.put(player, Bukkit.getServer().getCurrentTick() + duration);
         Bukkit.getScheduler().runTaskLater(AgetarouUniqueGuns.getInstance(), () -> {
-            player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(finalWeaponName + " &cの効果が切れました"));
+            player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(finalItemName + " &cの効果が切れました"));
             effectPlayers.remove(player);
         }, duration);
     }
@@ -194,11 +194,10 @@ public class AntiOnePunchMan implements Listener {
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onWeaponShoot(WeaponShootEvent event) {
-        String weaponTitle = CSUtilities.getOriginalWeaponName(event.getWeaponTitle());
-        if(!WEAPON_NAME.equals(weaponTitle)) return;
+        if(!CSUtilities.checkWeaponOrg(WEAPON_NAME, event.getWeaponTitle())) return;
 
         // 待機状態（構え状態）にする
-        readyPlayers.put(event.getPlayer(), true);
+        readyPlayers.put(event.getPlayer(), event.getWeaponTitle());
     }
 
     /**
@@ -213,14 +212,14 @@ public class AntiOnePunchMan implements Listener {
         int currentTick = Bukkit.getServer().getCurrentTick();
 
         // 1. 待機状態中にダメージを受けたら、ここで初めてシールド効果を「発動」させる
-        if (readyPlayers.getOrDefault(player, false) && effectPlayers.getOrDefault(player, 0) <= currentTick) {
-            readyPlayers.remove(player); // 待機状態を解除
+        if (readyPlayers.getOrDefault(player, null) != null && effectPlayers.getOrDefault(player, 0) <= currentTick) {
 
             // メインハンドの武器のタイトルを取得してapplyに渡す
-            String weaponTitle = API.getCSUtility().getWeaponTitle(player.getInventory().getItemInMainHand());
+            String weaponTitle = readyPlayers.get(player);
             if (weaponTitle != null) {
                 apply(player, weaponTitle);
             }
+            readyPlayers.remove(player); // 待機状態を解除
         }
 
         // 2. シールド効果時間中のダメージ軽減・無効化処理

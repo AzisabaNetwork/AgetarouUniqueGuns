@@ -152,10 +152,7 @@ public class HurtfulSpine extends WeaponBase {
 	 */
 	private static boolean updateWeaponData(ItemStack item, Player player) {
 		if(item == null) return false;
-		String weaponTitle = API.getCSUtility().getWeaponTitle(item);
-		if(weaponTitle == null) return false;
-		String orgWeaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
-		if(!WEAPON_NAME.equals(orgWeaponTitle)) return false;
+		if(!CSUtilities.checkWeaponOrg(WEAPON_NAME, item)) return false;
 
 		// アイテムの移動速度を設定
 		ItemMeta meta = item.getItemMeta();

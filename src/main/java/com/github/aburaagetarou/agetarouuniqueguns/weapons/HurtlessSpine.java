@@ -133,10 +133,7 @@ public class HurtlessSpine extends WeaponBase {
 	 */
 	private static boolean updateWeaponData(ItemStack item, Player player) {
 		if(item == null) return false;
-		String weaponTitle = API.getCSUtility().getWeaponTitle(item);
-		if(weaponTitle == null) return false;
-		String orgWeaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
-		if(!WEAPON_NAME.equals(orgWeaponTitle)) return false;
+		if(!CSUtilities.checkWeaponOrg(WEAPON_NAME, item)) return false;
 
 		// 現在の設定を取得
 		ItemMeta meta = item.getItemMeta();

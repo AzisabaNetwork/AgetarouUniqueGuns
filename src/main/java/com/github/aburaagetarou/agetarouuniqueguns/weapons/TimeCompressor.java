@@ -88,10 +88,10 @@ public class TimeCompressor implements Listener {
 		ItemStack item = player.getInventory().getItem(slot);
 		if(item == null) return;
 		String weaponTitle = API.getCSUtility().getWeaponTitle(item);
-		String orgWeaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
-		if(WEAPON_NAME.equals(orgWeaponTitle)) {
+		if(CSUtilities.checkWeaponOrg(WEAPON_NAME, weaponTitle)) {
 			return;
 		}
+		String orgWeaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
 
 		// 圧縮後の武器が残っている場合は元の武器に戻す
 		String compWeaponTitle = getConfig(KEY_COMPRESSED_WEAPON_NAME);
@@ -118,8 +118,7 @@ public class TimeCompressor implements Listener {
 		Player player = event.getPlayer();
 		ItemStack item = player.getInventory().getItem(player.getInventory().getHeldItemSlot());
 		String weaponTitle = API.getCSUtility().getWeaponTitle(item);
-		String orgWeaponTitle = CSUtilities.getOriginalWeaponName(weaponTitle);
-		if(!WEAPON_NAME.equals(orgWeaponTitle)) {
+		if(!CSUtilities.checkWeaponOrg(WEAPON_NAME, weaponTitle)) {
 			return;
 		}
 		String compWeaponTitle = getConfig(KEY_COMPRESSED_WEAPON_NAME);

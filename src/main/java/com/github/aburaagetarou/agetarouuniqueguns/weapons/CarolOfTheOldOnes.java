@@ -23,8 +23,8 @@ public class CarolOfTheOldOnes implements Listener {
 	 */
 	@EventHandler
 	public void onWeaponPreShoot(WeaponPreShootEvent event) {
-		if (WEAPON_NAME.equals(CSUtilities.getOriginalWeaponName(event.getWeaponTitle()))) {
-			if(API.getCSDirector().getAmmoBetweenBrackets(event.getPlayer(), WEAPON_NAME, event.getPlayer().getInventory().getItemInMainHand()) < 1) {
+		if (CSUtilities.checkWeaponOrg(WEAPON_NAME, event.getWeaponTitle())) {
+			if(API.getCSDirector().getAmmoBetweenBrackets(event.getPlayer(), event.getWeaponTitle(), event.getPlayer().getInventory().getItemInMainHand()) < 1) {
 				Utilities.sendColoredMessage(event.getPlayer(), "&cあなたは忠告を守れなかった。");
 				event.getPlayer().setHealth(0.0d);
 			}
