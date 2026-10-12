@@ -3,6 +3,7 @@ package com.github.aburaagetarou.agetarouuniqueguns.weapons;
 import com.github.aburaagetarou.agetarouuniqueguns.AgetarouUniqueGuns;
 import com.github.aburaagetarou.agetarouuniqueguns.WeaponConfig;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
+import com.github.aburaagetarou.agetarouuniqueguns.utils.Utilities;
 import com.shampaggon.crackshot.events.WeaponDamageEntityEvent;
 import com.shampaggon.crackshot.events.WeaponShootEvent;
 import me.DeeCaaD.CrackShotPlus.API;
@@ -40,11 +41,14 @@ public class AntiOnePunchMan implements Listener {
     public final static String KEY_THRESHOLD_DAMAGE = "Threshold_Damage";
     public final static String KEY_EFFECT_DURATION = "Effect_Duration";
 
+    public final static String KEY_END_MESSAGE = "End_Message";
+
     // 初期設定
     private static final ConfigurationSection defaultConfig = new YamlConfiguration(){{{
         set(KEY_MAX_DAMAGE_PER_TICK, 19.0d);
         set(KEY_THRESHOLD_DAMAGE, 20.0d);
         set(KEY_EFFECT_DURATION, 240);
+        set(KEY_END_MESSAGE, "&c%weapon%の効果が切れました");
     }}};
 
     // 効果発動中のプレイヤー（値は効果が終了するサーバーTick）
@@ -182,8 +186,9 @@ public class AntiOnePunchMan implements Listener {
         final String finalItemName = itemName;
         int duration = getEffectDuration();
         effectPlayers.put(player, Bukkit.getServer().getCurrentTick() + duration);
+
         Bukkit.getScheduler().runTaskLater(AgetarouUniqueGuns.getInstance(), () -> {
-            player.sendMessage(LegacyComponentSerializer.legacyAmpersand().deserialize(finalItemName + " &cの効果が切れました"));
+            Utilities.sendColoredMessage(player, getConfig(KEY_END_MESSAGE).toString().replace("%weapon%", finalItemName));
             effectPlayers.remove(player);
         }, duration);
     }

@@ -3,6 +3,7 @@ package com.github.aburaagetarou.agetarouuniqueguns.weapons;
 import com.github.aburaagetarou.agetarouuniqueguns.AgetarouUniqueGuns;
 import com.github.aburaagetarou.agetarouuniqueguns.WeaponConfig;
 import com.github.aburaagetarou.agetarouuniqueguns.utils.CSUtilities;
+import com.github.aburaagetarou.agetarouuniqueguns.utils.Utilities;
 import com.shampaggon.crackshot.events.WeaponDamageEntityEvent;
 import com.shampaggon.crackshot.events.WeaponShootEvent;
 import me.DeeCaaD.CrackShotPlus.API;
@@ -49,6 +50,8 @@ public class EPT_Jager implements Listener {
     public final static String KEY_DAMAGE_MESSAGE = "Damage_Message";
     public final static String KEY_VICTIM_MESSAGE = "Victim_Message";
     public final static String KEY_VICTIM_LIMIT = "Victim_Limit";
+    public final static String KEY_END_MESSAGE = "End_Message";
+
 
     // 初期設定
     private static final ConfigurationSection defaultConfig = new YamlConfiguration(){{{
@@ -59,6 +62,7 @@ public class EPT_Jager implements Listener {
         set(KEY_DAMAGE_MESSAGE, "&e[自身から%range%mに%player%を発見]");
         set(KEY_VICTIM_MESSAGE, "&e[%player%からの%weapon%&eによる電撃を受けた]");
         set(KEY_VICTIM_LIMIT, 3);
+        set(KEY_END_MESSAGE, "&c%weapon%の効果が切れました");
     }}};
 
     // 効果発動中のプレイヤー（値は効果が終了するサーバーTick）
@@ -241,7 +245,7 @@ public class EPT_Jager implements Listener {
         effectWeaponTitle.put(player, weaponTitle);
 
         Bukkit.getScheduler().runTaskLater(AgetarouUniqueGuns.getInstance(), () -> {
-            player.sendMessage(LegacyComponentSerializer.legacySection().deserialize(finalWeaponName + " §cの効果が切れました"));
+            Utilities.sendColoredMessage(player, getConfig(weaponTitle, KEY_END_MESSAGE).toString().replace("%weapon%", finalWeaponName));
             effectPlayers.remove(player);
             effectWeaponTitle.remove(player);
         }, duration);
